@@ -1,0 +1,9 @@
+[project]
+name = "peekaboo"
+version = "0.0.1"
+description = "A voice assistant for your on-screen content"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pipecat-ai[anthropic,cartesia,daily,deepgram,local-smart-turn-v3,runner,silero,webrtc]>=0.0.93,<1",
+]
