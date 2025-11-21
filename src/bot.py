@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
+from pathlib import Path
 from dotenv import load_dotenv
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
@@ -19,6 +20,7 @@ from processors.producers import VoiceProducer, VisionProducer
 from processors.consumers import VoiceConsumer, VisionConsumer
 from vision_agent import VisionAgent
 from voice_agent import VoiceAgent
+from file_store import PeekabooFileStore
 
 load_dotenv(override=True)
 
@@ -45,6 +47,8 @@ transport_params = {
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
+    store = PeekabooFileStore(store_path=Path("db"))
+
     voice_producer = VoiceProducer()
     vision_producer = VisionProducer()
 
@@ -60,6 +64,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     vision_agent = VisionAgent(
         vision_producer=vision_producer,
         voice_consumer=voice_consumer,
+        store=store,
     )
 
     runner = AgentRunner(handle_sigint=runner_args.handle_sigint)

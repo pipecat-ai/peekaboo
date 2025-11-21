@@ -11,3 +11,4 @@ wheels/
 
 # Others
 .env*
+db/

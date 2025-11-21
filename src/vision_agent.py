@@ -16,6 +16,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.services.anthropic.llm import AnthropicLLMService
 
 from base_agent import BaseAgent
+from base_store import BaseStore, ImageRecord
 from processors.consumers import VoiceConsumer
 from processors.producers import VisionProducer
 from processors.vision import (
@@ -90,9 +91,16 @@ IMAGE_OUTPUT_FORMAT = {
 
 
 class VisionAgent(BaseAgent):
-    def __init__(self, *, vision_producer: VisionProducer, voice_consumer: VoiceConsumer):
+    def __init__(
+        self,
+        *,
+        vision_producer: VisionProducer,
+        voice_consumer: VoiceConsumer,
+        store: BaseStore,
+    ):
         self._vision_producer = vision_producer
         self._voice_consumer = voice_consumer
+        self._store = store
 
     async def create_task(self) -> PipelineTask:
         # Query branch
@@ -158,5 +166,10 @@ class VisionAgent(BaseAgent):
             ),
             idle_timeout_secs=None,
         )
+
+        @image_context_processor.event_handler("on_image_analysis")
+        async def on_image_analysis(processor, data: dict):
+            record = ImageRecord.model_validate(data)
+            await self._store.append(record)
 
         return task

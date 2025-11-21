@@ -7,7 +7,7 @@
 import copy
 import json
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from PIL import Image
 from pipecat.frames.frames import (
@@ -96,18 +96,11 @@ class VisionQueryContextProcessor(FrameProcessor):
 
 
 class VisionImageProcessor(FrameProcessor):
-    def __init__(
-        self,
-        *,
-        system_instruction: str,
-        watchlist_timeout: int = 60,
-    ):
+    def __init__(self, *, system_instruction: str):
         super().__init__()
         self._system_instruction = system_instruction
-        self._watchlist_timeout = watchlist_timeout
         self._watchlist_queries: List[str] = []
         self._watchlist_messages: List[LLMContextFrame] = []
-        self._watchlist_timestamps: Dict[int, int] = {}
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -123,29 +116,17 @@ class VisionImageProcessor(FrameProcessor):
 
     async def _handle_vision_watchlist_frame(self, frame: VisionWatchlistFrame):
         content = frame.content["content"]
-        timestamp = frame.content["timestamp"]
-        watchlist = frame.content["watchlist"]
 
-        # Send the response back to the voice agent if enough time has passed.
-        send_response = False
-        for w in watchlist:
-            diff_time = timestamp - self._watchlist_timestamps.get(w, 0)
-            send_response = diff_time >= self._watchlist_timeout
-            if send_response:
-                self._watchlist_timestamps[w] = timestamp
-                break
-
-        if send_response:
-            self._watchlist_messages.extend(
-                [
-                    {
-                        "role": "user",
-                        "content": "Image removed from this message for efficiency.",
-                    },
-                    {"role": "assistant", "content": content},
-                ]
-            )
-            await self.push_frame(VisionResponseFrame(response=content))
+        self._watchlist_messages.extend(
+            [
+                {
+                    "role": "user",
+                    "content": "Image removed from this message for efficiency.",
+                },
+                {"role": "assistant", "content": content},
+            ]
+        )
+        await self.push_frame(VisionResponseFrame(response=content))
 
     async def _handle_vision_query_frame(self, frame: VisionQueryFrame):
         self._watchlist_queries.append(frame.query)
@@ -197,9 +178,18 @@ class VisionImageProcessor(FrameProcessor):
 
 
 class VisionImageContextProcessor(FrameProcessor):
-    def __init__(self, *, query_processor: VisionQueryProcessor):
+    def __init__(
+        self,
+        *,
+        query_processor: VisionQueryProcessor,
+        watchlist_timeout: int = 60,
+    ):
         super().__init__()
         self._query_processor = query_processor
+        self._watchlist_timeout = watchlist_timeout
+        self._watchlist_timestamps: Dict[int, int] = {}
+
+        self._register_event_handler("on_image_analysis")
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -213,14 +203,15 @@ class VisionImageContextProcessor(FrameProcessor):
         try:
             assistant_message = frame.context.messages[-1]
 
+            message_content = assistant_message["content"]
+            content_dict = json.loads(message_content)
+
+            await self._call_event_handler("on_image_analysis", content_dict)
+
             # If we get a watchlist response we should send it to the voice agent
             # right away.
-            watchlist_content = self._get_watchlist_content(assistant_message)
-            if watchlist_content:
-                await self.push_frame(
-                    VisionWatchlistFrame(content=watchlist_content),
-                    FrameDirection.UPSTREAM,
-                )
+            if content_dict.get("type", "") == "watchlist":
+                await self._maybe_send_watchlist_item(content_dict)
             else:
                 await self._send_messages_to_query_processor(assistant_message)
         except Exception:
@@ -230,13 +221,6 @@ class VisionImageContextProcessor(FrameProcessor):
 
         # We know that every time we get here we can request a new image.
         await self.push_frame(VisionRequestFrame())
-
-    def _get_watchlist_content(self, message: LLMContextMessage) -> Optional[dict]:
-        content = message["content"]
-        data = json.loads(content)
-        if data.get("type", "") == "watchlist":
-            return data
-        return None
 
     async def _send_messages_to_query_processor(self, message: LLMContextMessage):
         await self._query_processor.append_image_messages(
@@ -248,3 +232,19 @@ class VisionImageContextProcessor(FrameProcessor):
                 message,
             ]
         )
+
+    async def _maybe_send_watchlist_item(self, item: Mapping[str, Any]):
+        timestamp = item["timestamp"]
+        watchlist = item["watchlist"]
+
+        # Push watchlist so it can be sent to the voice agent.
+        send_watchlist = False
+        for w in watchlist:
+            diff_time = timestamp - self._watchlist_timestamps.get(w, 0)
+            send_watchlist = diff_time >= self._watchlist_timeout
+            if send_watchlist:
+                self._watchlist_timestamps[w] = timestamp
+                break
+
+        if send_watchlist:
+            await self.push_frame(VisionWatchlistFrame(content=item), FrameDirection.UPSTREAM)
