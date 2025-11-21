@@ -28,7 +28,7 @@ from pipecat.transports.base_transport import BaseTransport
 
 from base_agent import BaseAgent
 from processors.consumers import VisionConsumer
-from processors.frames import VisionQueryFrame, VoiceAgentStartedFrame
+from processors.frames import VisionQueryFrame, VoiceAgentStartedFrame, VoiceAgentStoppedFrame
 from processors.producers import VoiceProducer
 
 SYSTEM_INSTRUCTION = """
@@ -154,6 +154,7 @@ class VoiceAgent(BaseAgent):
         @self._transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport, client):
             logger.info(f"Client disconnected")
+            await task.queue_frame(VoiceAgentStoppedFrame())
             await task.cancel()
 
         return task

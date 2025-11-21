@@ -5,6 +5,7 @@
 #
 
 from typing import Optional
+
 from pipecat.frames.frames import Frame, UserImageRawFrame
 from pipecat.processors.producer_processor import ProducerProcessor
 from processors.frames import (
@@ -12,6 +13,7 @@ from processors.frames import (
     VisionRequestFrame,
     VisionResponseFrame,
     VoiceAgentStartedFrame,
+    VoiceAgentStoppedFrame,
 )
 
 
@@ -21,7 +23,10 @@ class VoiceProducer(ProducerProcessor):
         self._query_frame: Optional[VisionQueryFrame] = None
 
     async def _filter_frames(self, frame: Frame) -> bool:
-        return isinstance(frame, (UserImageRawFrame, VoiceAgentStartedFrame, VisionQueryFrame))
+        return isinstance(
+            frame,
+            (UserImageRawFrame, VoiceAgentStartedFrame, VoiceAgentStoppedFrame, VisionQueryFrame),
+        )
 
 
 class VisionProducer(ProducerProcessor):

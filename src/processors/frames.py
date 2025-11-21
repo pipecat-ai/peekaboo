@@ -14,6 +14,10 @@ class VoiceAgentStartedFrame(SystemFrame):
     pass
 
 @dataclass
+class VoiceAgentStoppedFrame(SystemFrame):
+    pass
+
+@dataclass
 class VisionQueryFrame(SystemFrame):
     query: str
     watchlist: bool

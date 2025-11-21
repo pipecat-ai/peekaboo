@@ -5,6 +5,7 @@
 #
 
 from pipecat.frames.frames import (
+    CancelTaskFrame,
     Frame,
     InterruptionFrame,
     TTSSpeakFrame,
@@ -17,6 +18,7 @@ from processors.frames import (
     VisionRequestFrame,
     VisionResponseFrame,
     VoiceAgentStartedFrame,
+    VoiceAgentStoppedFrame,
 )
 from processors.producers import VisionProducer, VoiceProducer
 
@@ -34,9 +36,14 @@ class VoiceConsumer(ConsumerProcessor):
 
         if isinstance(frame, VoiceAgentStartedFrame):
             await self._handle_voice_agent_started_frame(frame)
+        elif isinstance(frame, VoiceAgentStoppedFrame):
+            await self._handle_voice_agent_stopped_frame(frame)
 
     async def _handle_voice_agent_started_frame(self, frame: VoiceAgentStartedFrame):
         await self.push_frame(VisionRequestFrame())
+
+    async def _handle_voice_agent_stopped_frame(self, frame: VoiceAgentStoppedFrame):
+        await self.push_frame(CancelTaskFrame(), FrameDirection.UPSTREAM)
 
 
 class VisionConsumer(ConsumerProcessor):
