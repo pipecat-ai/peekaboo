@@ -36,14 +36,13 @@ from processors.vision import (
     VisionQueryProcessor,
 )
 
-today = datetime.now().date().strftime("%B %d, %Y")
-today_timestamp = datetime.now().timestamp()
+today = datetime.now().astimezone().strftime("%B %d, %Y %Z")
 
 QUERY_SYSTEM_INSTRUCTION = f"""
 
-You are a vision agent helper. Today is {today}, which in Unix timestamp is
-{today_timestamp}. You have access to historical screen information. Use the
-[start_history_agent] tool if you have insufficient historical data.
+You are a vision agent helper. Today is {today}. You have access to historical
+screen information. Use the [start_history_agent] tool if you have insufficient
+historical data.
 
 The user context contains JSON objects like the following:
 

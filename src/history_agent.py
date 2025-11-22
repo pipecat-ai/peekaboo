@@ -22,8 +22,9 @@ from pipecat.services.llm_service import FunctionCallParams
 
 from base_agent import BaseAgent
 from base_store import BaseStore
+from processors.history import HistoryContextProcessor
 
-today = datetime.now().date().strftime("%B %d, %Y")
+today = datetime.now().astimezone().strftime("%B %d, %Y %Z")
 
 SYSTEM_INSTRUCTION = f"""
 
@@ -91,11 +92,14 @@ class HistoryAgent(BaseAgent):
         context = LLMContext(messages, tools)
         context_aggregator = LLMContextAggregatorPair(context)
 
+        context_processor = HistoryContextProcessor()
+
         pipeline = Pipeline(
             [
                 context_aggregator.user(),  # User spoken responses
                 llm,  # LLM
                 context_aggregator.assistant(),  # Assistant spoken responses and tool context
+                context_processor,
             ]
         )
 
