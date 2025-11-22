@@ -4,8 +4,15 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
+import asyncio
 import os
+from datetime import datetime, timezone
+from typing import Dict
+import uuid
 
+from loguru import logger
+from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -14,9 +21,12 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.services.anthropic.llm import AnthropicLLMService
+from pipecat.services.llm_service import FunctionCallParams
 
+from agent_runner import AgentRunner
 from base_agent import BaseAgent
 from base_store import BaseStore, ImageRecord
+from history_agent import HistoryAgent
 from processors.consumers import VoiceConsumer
 from processors.producers import VisionProducer
 from processors.vision import (
@@ -26,15 +36,21 @@ from processors.vision import (
     VisionQueryProcessor,
 )
 
-QUERY_SYSTEM_INSTRUCTION = """
+today = datetime.now().date().strftime("%B %d, %Y")
+today_timestamp = datetime.now().timestamp()
 
-You are a vision agent helper. The user context mostly contains JSON objects like
-the following:
+QUERY_SYSTEM_INSTRUCTION = f"""
 
-  {"type": "description", "content": "Image description.", "timestamp": 1763680389 }
+You are a vision agent helper. Today is {today}, which in Unix timestamp is
+{today_timestamp}. You have access to historical screen information. Use the
+[start_history_agent] tool if you have insufficient historical data.
 
-ALWAYS use the "content" field to answer the user’s question. Do not rely on outside
-knowledge, just look at the context. Accuracy is critical.
+The user context contains JSON objects like the following:
+
+  {{"type": "description", "content": "Image description.", "timestamp": 1763680389 }}
+
+ALWAYS use the "content" field to answer the user’s question. Do not rely on
+outside knowledge, just look at the context. Accuracy is critical.
 
 All responses must be very brief and easy to speak aloud. Do not use emojis,
 bullet points, or symbols that are difficult to vocalize.
@@ -61,7 +77,7 @@ FIELDS
    that are easy to understand.
 
 3. "timestamp"
-   The UTC Unix timestamp (in seconds) when the image was received.
+   The Unix timestamp (in seconds) when the image was received.
 
 4. "watchlist" (optional)
    Include this field only when "type" is "watchlist".
@@ -101,6 +117,8 @@ class VisionAgent(BaseAgent):
         self._vision_producer = vision_producer
         self._voice_consumer = voice_consumer
         self._store = store
+        self._history_agent_runners: Dict[str, AgentRunner] = {}
+        self._history_agent_tasks: Dict[str, asyncio.Task] = {}
 
     async def create_task(self) -> PipelineTask:
         # Query branch
@@ -108,8 +126,23 @@ class VisionAgent(BaseAgent):
             name="VisionQueryAnthropicLLMService",
             api_key=os.getenv("ANTHROPIC_API_KEY"),
         )
+        query_llm.register_function("start_history_agent", self._start_history_agent)
 
-        query_context = LLMContext()
+        history_function = FunctionSchema(
+            name="start_history_agent",
+            description="Call this function when you don't have enough historical information.",
+            properties={
+                "query": {
+                    "type": "string",
+                    "description": "Very brief summary of what the user is asking.",
+                }
+            },
+            required=["query"],
+        )
+
+        query_tools = ToolsSchema(standard_tools=[history_function])
+
+        query_context = LLMContext(tools=query_tools)
         query_context_aggregator = LLMContextAggregatorPair(query_context)
         query_processor = VisionQueryProcessor(system_instruction=QUERY_SYSTEM_INSTRUCTION)
         query_context_processor = VisionQueryContextProcessor()
@@ -172,4 +205,40 @@ class VisionAgent(BaseAgent):
             record = ImageRecord.model_validate(data)
             await self._store.append(record)
 
+        @task.event_handler("on_pipeline_finished")
+        async def on_pipeline_finished(task, frame):
+            for id, r in self._history_agent_runners.items():
+                await r.cancel()
+
+            # Wait for all tasks/runners to finish.
+            tasks = self._history_agent_tasks.values()
+            await asyncio.gather(*tasks)
+
         return task
+
+    async def _start_history_agent(self, params: FunctionCallParams):
+        query = params.arguments["query"]
+
+        agent_id = str(uuid.uuid4())
+
+        logger.debug(f"Starting history agent {agent_id} with query: {query}")
+
+        runner = AgentRunner(handle_sigint=False)
+
+        agent = HistoryAgent(id=agent_id, query=query, store=self._store)
+
+        task = asyncio.create_task(self._history_agent_task_handler(runner, agent))
+        task.set_name(agent_id)
+        task.add_done_callback(self._history_agent_task_done)
+
+        self._history_agent_runners[agent_id] = runner
+        self._history_agent_tasks[agent_id] = task
+
+        await params.result_callback(None)
+
+    async def _history_agent_task_handler(self, runner: AgentRunner, agent: BaseAgent):
+        await runner.run(agent)
+
+    def _history_agent_task_done(self, task: asyncio.Task):
+        if task.get_name() in self._history_agent_tasks:
+            del self._history_agent_tasks[task.get_name()]

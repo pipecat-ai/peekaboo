@@ -5,7 +5,7 @@
 #
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Literal
 
 from pydantic import BaseModel
@@ -18,7 +18,7 @@ class ImageRecord(BaseModel):
 
     @property
     def datetime(self) -> datetime:
-        return datetime.fromtimestamp(self.timestamp, tz=timezone.utc)
+        return datetime.fromtimestamp(self.timestamp)
 
 class ImageBatch(BaseModel):
     images: List[ImageRecord]

@@ -22,3 +22,6 @@ class AgentRunner:
 
         coros = [self._runner.run(await t.create_task()) for t in args]
         await asyncio.gather(*coros)
+
+    async def cancel(self):
+        await self._runner.cancel()
