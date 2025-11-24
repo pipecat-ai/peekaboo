@@ -32,7 +32,8 @@ SYSTEM_INSTRUCTION = f"""
 You are an assistant to a vision agent. Today is {today}.
 
 You have access to historical screen information. Use the [load_history] tool to
-load information with the timestamp you consider necessary.
+load information with the timestamp you consider necessary. Load all the image
+batches available.
 
 Be extremely brief. All responses are spoken aloud. Avoid emojis, bullet points,
 or anything difficult to vocalize.
@@ -77,10 +78,14 @@ class HistoryAgent(BaseAgent):
             properties={
                 "timestamp": {
                     "type": "string",
-                    "description": "A timestamp in this format: Nov 21, 2025 13:54",
-                }
+                    "description": "A timestamp in this format: Nov 21, 2025 13:54.",
+                },
+                "batch_index": {
+                    "type": "integer",
+                    "description": "The image batch index. Start with 0.",
+                },
             },
-            required=["timestamp"],
+            required=["timestamp", "batch_index"],
         )
 
         tools = ToolsSchema(standard_tools=[history_function])
@@ -125,13 +130,19 @@ class HistoryAgent(BaseAgent):
 
     async def _load_history(self, params: FunctionCallParams):
         timestamp = params.arguments["timestamp"]
+        batch_index = params.arguments["batch_index"]
+
         date = datetime.strptime(timestamp, "%b %d, %Y %H:%M")
 
         logger.debug(f"Loading historical data from {date}")
 
-        batch = await self._store.load(date)
+        batch = await self._store.load(date, batch_index)
         if batch and batch.images:
             batch_dict = batch.model_dump()
-            await params.result_callback(batch_dict["images"])
+            images = batch_dict["images"]
+
+            result = f"Image batch {batch.index} out of {batch.total}\n\n{images}"
+
+            await params.result_callback(result)
         else:
             await params.result_callback("There's no information from the given date.")

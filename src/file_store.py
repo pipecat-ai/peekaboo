@@ -7,10 +7,13 @@
 import asyncio
 import json
 from datetime import datetime
+from math import ceil
 from pathlib import Path
 from typing import Dict, Optional
 
-from base_store import BaseStore, ImageBatch, ImageRecord
+from base_store import BaseStore, ImageBatch, ImageCollection, ImageRecord
+
+BATCH_IMAGE_SIZE = 25
 
 
 class PeekabooFileStore(BaseStore):
@@ -19,16 +22,34 @@ class PeekabooFileStore(BaseStore):
         self._locks: Dict[Path, asyncio.Lock] = {}
 
     async def append(self, record: ImageRecord):
-        batch = await self.load(record.datetime)
+        collection = await self._load(record.datetime)
 
-        if not batch:
-            batch = ImageBatch(images=[])
+        if not collection:
+            collection = ImageCollection(images=[])
 
-        batch.images.append(record)
+        collection.images.append(record)
 
-        await self._save(batch, record.datetime)
+        await self._save(collection, record.datetime)
 
-    async def load(self, date: datetime) -> Optional[ImageBatch]:
+    async def load(self, date: datetime, batch_index: int) -> Optional[ImageBatch]:
+        collection = await self._load(date)
+
+        if not collection:
+            return None
+
+        collection_size = len(collection.images)
+
+        first = batch_index * BATCH_IMAGE_SIZE
+        last = min(first + BATCH_IMAGE_SIZE, collection_size) - 1
+        batch_total = int(ceil(collection_size / BATCH_IMAGE_SIZE))
+
+        return ImageBatch(
+            images=collection.images[first:last],
+            index=batch_index,
+            total=batch_total,
+        )
+
+    async def _load(self, date: datetime) -> Optional[ImageCollection]:
         file_path = self._file_path(date)
 
         lock = self._get_lock(file_path)
@@ -38,15 +59,15 @@ class PeekabooFileStore(BaseStore):
                 return None
 
             data = json.loads(file_path.read_text())
-            return ImageBatch(**data)
+            return ImageCollection(**data)
 
-    async def _save(self, batch: ImageBatch, date: datetime):
+    async def _save(self, collection: ImageCollection, date: datetime):
         file_path = self._file_path(date)
         lock = self._get_lock(file_path)
 
         async with lock:
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(batch.model_dump_json(indent=2))
+            file_path.write_text(collection.model_dump_json(indent=2))
 
     def _get_lock(self, path: Path) -> asyncio.Lock:
         if path not in self._locks:

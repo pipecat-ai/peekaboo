@@ -20,8 +20,13 @@ class ImageRecord(BaseModel):
     def datetime(self) -> datetime:
         return datetime.fromtimestamp(self.timestamp)
 
+class ImageCollection(BaseModel):
+    images: List[ImageRecord]
+
 class ImageBatch(BaseModel):
     images: List[ImageRecord]
+    index: int
+    total: int
 
 class BaseStore(ABC):
 
@@ -30,5 +35,5 @@ class BaseStore(ABC):
         pass
 
     @abstractmethod
-    async def load(self, date: datetime) -> Optional[ImageBatch]:
+    async def load(self, date: datetime, batch_index: int) -> Optional[ImageBatch]:
         pass

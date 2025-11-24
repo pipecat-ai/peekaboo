@@ -41,9 +41,8 @@ today = datetime.now().astimezone().strftime("%B %d, %Y %Z")
 QUERY_SYSTEM_INSTRUCTION = f"""
 
 You are a vision agent helper. Today is {today}. Your context contains
-historical screen information, but it might not be complete. Always use the
-[start_history_agent] tool if you do NOT have enough historical data, NEVER
-provide an answer at this point.
+historical screen information, but it might not be complete. ALWAYS use the
+[start_history_agent] tool if you do NOT have enough historical data.
 
 The user context contains JSON objects like the following:
 
@@ -239,7 +238,9 @@ class VisionAgent(BaseAgent):
         self._history_agent_runners[agent_id] = runner
         self._history_agent_tasks[agent_id] = task
 
-        await params.result_callback(f"History agent started. DO NOT provide an answer.")
+        await params.result_callback(
+            "Just tell the user a history agent has started. DO NOT provide an answer at this point."
+        )
 
     async def _history_agent_task_handler(self, runner: AgentRunner, agent: BaseAgent):
         await runner.run(agent)
