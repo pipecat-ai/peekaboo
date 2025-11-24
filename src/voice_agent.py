@@ -86,7 +86,7 @@ class VoiceAgent(BaseAgent):
             properties={
                 "query": {
                     "type": "string",
-                    "description": "Very brief summary of what the user is asking.",
+                    "description": "The exact question the user is asking.",
                 },
                 "watchlist": {
                     "type": "boolean",

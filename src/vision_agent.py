@@ -133,7 +133,7 @@ class VisionAgent(BaseAgent):
             properties={
                 "query": {
                     "type": "string",
-                    "description": "Very brief summary of what the user is asking.",
+                    "description": "The exact question the user is asking.",
                 }
             },
             required=["query"],
@@ -238,9 +238,7 @@ class VisionAgent(BaseAgent):
         self._history_agent_runners[agent_id] = runner
         self._history_agent_tasks[agent_id] = task
 
-        await params.result_callback(
-            "Just tell the user a history agent has started. DO NOT provide an answer at this point."
-        )
+        await params.result_callback("History agent started.")
 
     async def _history_agent_task_handler(self, runner: AgentRunner, agent: BaseAgent):
         await runner.run(agent)
