@@ -8,7 +8,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from base_store import BaseStore, ImageBatch, ImageRecord
 
@@ -20,17 +20,22 @@ class PeekabooFileStore(BaseStore):
 
     async def append(self, record: ImageRecord):
         batch = await self.load(record.datetime)
+
+        if not batch:
+            batch = ImageBatch(images=[])
+
         batch.images.append(record)
+
         await self._save(batch, record.datetime)
 
-    async def load(self, date: datetime) -> ImageBatch:
+    async def load(self, date: datetime) -> Optional[ImageBatch]:
         file_path = self._file_path(date)
 
         lock = self._get_lock(file_path)
 
         async with lock:
             if not file_path.exists():
-                return ImageBatch(images=[])
+                return None
 
             data = json.loads(file_path.read_text())
             return ImageBatch(**data)

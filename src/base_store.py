@@ -6,7 +6,7 @@
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -30,5 +30,5 @@ class BaseStore(ABC):
         pass
 
     @abstractmethod
-    async def load(self, date: datetime) -> ImageBatch:
+    async def load(self, date: datetime) -> Optional[ImageBatch]:
         pass

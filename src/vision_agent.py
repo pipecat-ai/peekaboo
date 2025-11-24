@@ -6,9 +6,9 @@
 
 import asyncio
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Dict
-import uuid
 
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -40,9 +40,10 @@ today = datetime.now().astimezone().strftime("%B %d, %Y %Z")
 
 QUERY_SYSTEM_INSTRUCTION = f"""
 
-You are a vision agent helper. Today is {today}. You have access to historical
-screen information. Use the [start_history_agent] tool if you have insufficient
-historical data.
+You are a vision agent helper. Today is {today}. Your context contains
+historical screen information, but it might not be complete. Always use the
+[start_history_agent] tool if you do NOT have enough historical data, NEVER
+provide an answer at this point.
 
 The user context contains JSON objects like the following:
 
@@ -224,7 +225,12 @@ class VisionAgent(BaseAgent):
 
         runner = AgentRunner(handle_sigint=False)
 
-        agent = HistoryAgent(id=agent_id, query=query, store=self._store)
+        agent = HistoryAgent(
+            id=agent_id,
+            query=query,
+            response_processor=self._vision_producer,
+            store=self._store,
+        )
 
         task = asyncio.create_task(self._history_agent_task_handler(runner, agent))
         task.set_name(agent_id)
@@ -233,7 +239,7 @@ class VisionAgent(BaseAgent):
         self._history_agent_runners[agent_id] = runner
         self._history_agent_tasks[agent_id] = task
 
-        await params.result_callback(None)
+        await params.result_callback(f"History agent started. DO NOT provide an answer.")
 
     async def _history_agent_task_handler(self, runner: AgentRunner, agent: BaseAgent):
         await runner.run(agent)

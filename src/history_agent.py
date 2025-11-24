@@ -17,6 +17,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
+from pipecat.processors.producer_processor import ProducerProcessor
 from pipecat.services.anthropic.llm import AnthropicLLMService
 from pipecat.services.llm_service import FunctionCallParams
 
@@ -45,13 +46,15 @@ class HistoryAgent(BaseAgent):
         *,
         id: str,
         query: str,
+        store: BaseStore,
+        response_processor: ProducerProcessor,
         max_tokens: int = 16000,
         thinking_budget_tokens: int = 10000,
-        store: BaseStore,
     ):
         self._id = id
         self._query = query
         self._store = store
+        self._response_processor = response_processor
         self._max_tokens = max_tokens
         self._thinking_budget_tokens = thinking_budget_tokens
 
@@ -73,8 +76,8 @@ class HistoryAgent(BaseAgent):
             description="Call this function when you need to load image descriptions.",
             properties={
                 "timestamp": {
-                    "type": "integer",
-                    "description": "A unix timestamp in seconds.",
+                    "type": "string",
+                    "description": "A timestamp in this format: Nov 21, 2025 13:54",
                 }
             },
             required=["timestamp"],
@@ -92,7 +95,7 @@ class HistoryAgent(BaseAgent):
         context = LLMContext(messages, tools)
         context_aggregator = LLMContextAggregatorPair(context)
 
-        context_processor = HistoryContextProcessor()
+        context_processor = HistoryContextProcessor(response_processor=self._response_processor)
 
         pipeline = Pipeline(
             [
@@ -122,12 +125,12 @@ class HistoryAgent(BaseAgent):
 
     async def _load_history(self, params: FunctionCallParams):
         timestamp = params.arguments["timestamp"]
-        date = datetime.fromtimestamp(timestamp)
+        date = datetime.strptime(timestamp, "%b %d, %Y %H:%M")
 
         logger.debug(f"Loading historical data from {date}")
 
         batch = await self._store.load(date)
-        if batch:
+        if batch and batch.images:
             batch_dict = batch.model_dump()
             await params.result_callback(batch_dict["images"])
         else:

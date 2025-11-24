@@ -167,7 +167,7 @@ class VoiceAgent(BaseAgent):
         await self._voice_producer.queue_frame(VisionQueryFrame(query=query, watchlist=watchlist))
 
         result = (
-            "Just tell the user you will let them know. DO NOT provide an answer"
+            "Just tell the user you will let them know. DO NOT provide an answer."
             if watchlist
             else "Just tell the user to wait for a second. DO NOT provide an answer."
         )
