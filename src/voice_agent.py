@@ -154,7 +154,7 @@ class VoiceAgent(BaseAgent):
 
         @self._transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport, client):
-            logger.info(f"Client disconnected")
+            logger.info("Client disconnected")
             await task.queue_frame(VoiceAgentStoppedFrame())
             await task.cancel()
 

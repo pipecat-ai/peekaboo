@@ -7,7 +7,7 @@
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict
 
 from loguru import logger
