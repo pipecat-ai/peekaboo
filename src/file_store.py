@@ -6,10 +6,10 @@
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, date
 from math import ceil
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence
 
 from base_store import BaseStore, ImageBatch, ImageCollection, ImageRecord
 
@@ -31,6 +31,20 @@ class PeekabooFileStore(BaseStore):
 
         await self._save(collection, record.datetime)
 
+    async def available(self, date: date) -> Sequence[int]:
+        date_path = self._date_path(date)
+
+        if not date_path.exists():
+            return []
+
+        hours = []
+        for file in date_path.iterdir():
+            # Match pattern exactly: peekaboo-YYYY-MM-DD-HH.json
+            hour = int(file.stem[-2:])
+            hours.append(hour)
+
+        return sorted(hours)
+
     async def load(self, date: datetime, batch_index: int) -> Optional[ImageBatch]:
         collection = await self._load(date)
 
@@ -50,7 +64,7 @@ class PeekabooFileStore(BaseStore):
         )
 
     async def _load(self, date: datetime) -> Optional[ImageCollection]:
-        file_path = self._file_path(date)
+        file_path = self._datetime_file_path(date)
 
         lock = self._get_lock(file_path)
 
@@ -62,7 +76,7 @@ class PeekabooFileStore(BaseStore):
             return ImageCollection(**data)
 
     async def _save(self, collection: ImageCollection, date: datetime):
-        file_path = self._file_path(date)
+        file_path = self._datetime_file_path(date)
         lock = self._get_lock(file_path)
 
         async with lock:
@@ -74,9 +88,17 @@ class PeekabooFileStore(BaseStore):
             self._locks[path] = asyncio.Lock()
         return self._locks[path]
 
-    def _file_path(self, date: datetime) -> Path:
-        # year/month/peekaboo-YYYY-MM-DD-HH.json
+    def _date_path(self, date: date) -> Path:
+        # year/month/day/peekaboo-YYYY-MM-DD-HH.json
         year = date.strftime("%Y")
         month = date.strftime("%m")
+        day = date.strftime("%d")
+        return self._store_path / year / month / day
+
+    def _datetime_file_path(self, date: datetime) -> Path:
+        # year/month/day/peekaboo-YYYY-MM-DD-HH.json
+        year = date.strftime("%Y")
+        month = date.strftime("%m")
+        day = date.strftime("%d")
         filename = date.strftime("peekaboo-%Y-%m-%d-%H.json")
-        return self._store_path / year / month / filename
+        return self._store_path / year / month / day / filename

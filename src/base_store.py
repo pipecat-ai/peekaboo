@@ -5,8 +5,8 @@
 #
 
 from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import List, Literal, Optional
+from datetime import datetime, date
+from typing import List, Literal, Optional, Sequence
 
 from pydantic import BaseModel
 
@@ -32,6 +32,10 @@ class BaseStore(ABC):
 
     @abstractmethod
     async def append(self, record: ImageRecord):
+        pass
+
+    @abstractmethod
+    async def available(self, date: date) -> Sequence[int]:
         pass
 
     @abstractmethod
