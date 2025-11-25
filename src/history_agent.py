@@ -31,23 +31,37 @@ SYSTEM_INSTRUCTION = f"""
 
 You are an assistant to a vision agent. Today is {today}.
 
-You have retrieve historical screen information using the [load_history] tool.
+You can access historical screen information using two tools:
+[available_history] and [load_history].
 
-Tool-use rules:
+[available_history] rules:
+
+- Use this tool to check which hours of a specific day have available data.
+
+- You may specify only one day per call.
+
+- The date must be in this exact format: Nov 21, 2025.
+
+- The tool returns a list of integers representing hours in 24-hour format
+  (e.g., 0 = 12:00 AM, 13 = 1:00 PM).
+
+
+[load_history] rules:
+
+- Use this tool to retrieve the actual historical screen information.
 
 - You may specify only one hour per call.
 
-- The timestamp must be in this exact format: Nov 21, 2025 13:54.
+- The timestamp must be in this exact format: Nov 21, 2025 13:00.
+
+- Only load information for hours that are confirmed available via
+  [available_history].
 
 - The tool may return incomplete information. Use batch_index to load additional
   batches.
 
-- Always start with batch_index = 0, and load batches sequentially in order (0,
+- Always start with batch_index = 0 and load batches sequentially in order (0,
   then 1, then 2, etc.).
-
-- You may load multiple hours if needed. For example, if asked for a summary of
-  an entire day, load representative hours (e.g., some from the morning and some
-  from the afternoon) rather than every hour.
 
 Be extremely brief. All responses are spoken aloud. Avoid emojis, bullet points,
 or anything difficult to vocalize.
@@ -84,25 +98,38 @@ class HistoryAgent(BaseAgent):
                 },
             ),
         )
+        llm.register_function("available_history", self._available_history)
         llm.register_function("load_history", self._load_history)
 
-        history_function = FunctionSchema(
+        available_function = FunctionSchema(
+            name="available_history",
+            description="Use this function to find which hours have historical data available for a specific day.",
+            properties={
+                "date": {
+                    "type": "string",
+                    "description": "The date to check, in this exact format: Nov 21, 2025.",
+                },
+            },
+            required=["date"],
+        )
+
+        load_function = FunctionSchema(
             name="load_history",
-            description="Call this function when you need to load image descriptions.",
+            description="Use this function to load image descriptions for a specific hour.",
             properties={
                 "timestamp": {
                     "type": "string",
-                    "description": "A timestamp in this format: Nov 21, 2025 13:54.",
+                    "description": "The timestamp to load, in this exact format: Nov 21, 2025 13:54.",
                 },
                 "batch_index": {
                     "type": "integer",
-                    "description": "The image batch index. Start with 0.",
+                    "description": "The index of the image batch to load for that hour.",
                 },
             },
             required=["timestamp", "batch_index"],
         )
 
-        tools = ToolsSchema(standard_tools=[history_function])
+        tools = ToolsSchema(standard_tools=[available_function, load_function])
 
         messages = [
             {
@@ -142,6 +169,17 @@ class HistoryAgent(BaseAgent):
 
         return task
 
+    async def _available_history(self, params: FunctionCallParams):
+        date_str = params.arguments["date"]
+
+        date = datetime.strptime(date_str, "%b %d, %Y")
+
+        logger.debug(f"Loading available historical data from {date_str}")
+
+        available = await self._store.available(date)
+
+        await params.result_callback(available)
+
     async def _load_history(self, params: FunctionCallParams):
         timestamp = params.arguments["timestamp"]
         batch_index = params.arguments["batch_index"]
@@ -159,4 +197,4 @@ class HistoryAgent(BaseAgent):
 
             await params.result_callback(result)
         else:
-            await params.result_callback("There's no information from the given date.")
+            await params.result_callback(f"There's no information from {timestamp}.")
