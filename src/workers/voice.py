@@ -60,7 +60,7 @@ from moments import Moment, MomentKind, MomentPolicy
 from processors.conversation import ConversationState
 from processors.wake import LocalTranscriptionFrame, WakeGate
 from processors.screen_bridge import ScreenBridge
-from workers.names import SCREEN_WORKER, VISION_WORKER, VOICE_WORKER
+from workers.names import SCREEN_WORKER, UI_WORKER, VISION_WORKER, VOICE_WORKER
 
 if TYPE_CHECKING:
     from store.sqlite_store import SQLiteStore
@@ -144,6 +144,11 @@ Tool-use rules:
   ask yesterday", "I remember searching for", "what did you tell me about"),
   call [past_searches] and answer from what it returns: when they asked, what
   they asked, and what the answer was, briefly.
+
+- If the user talks about the Peekaboo window or what it shows ("open the
+  first one", "go to the timeline", "what's the third screenshot about",
+  "go back", "show the searches"), call [window] with their words and say
+  nothing yourself: the window answers and acts on its own.
 
 - "Start recording", "pause recording", "stop recording" mean call
   [set_recording]. Recording is what builds the memory of the screen.
@@ -323,6 +328,7 @@ class VoiceWorker(PipelineWorker):
         *,
         vision_worker: str = VISION_WORKER,
         screen_worker: str = SCREEN_WORKER,
+        ui_worker: str = UI_WORKER,
         screen_from_transport: bool = True,
         open_links: bool = True,
         speech: SpeechServices = "cloud",
@@ -343,6 +349,7 @@ class VoiceWorker(PipelineWorker):
         self._transport = transport
         self._vision_worker = vision_worker
         self._screen_worker = screen_worker
+        self._ui_worker = ui_worker
         self._open_links = open_links
         self._speech = speech
         self._registry = registry
@@ -461,6 +468,7 @@ class VoiceWorker(PipelineWorker):
         llm.register_function("list_windows", self._list_windows)
         llm.register_function("show_me", self._show_me)
         llm.register_function("past_searches", self._past_searches)
+        llm.register_function("window", self._window)
         llm.register_function("set_recording", self._set_recording)
         llm.register_function("join_meeting", self._join_meeting)
         llm.register_function("snooze_reminder", self._snooze_reminder)
@@ -552,6 +560,22 @@ class VoiceWorker(PipelineWorker):
             },
             required=["query"],
         )
+        window_function = FunctionSchema(
+            name="window",
+            description=(
+                "Operate the Peekaboo window, or answer about what it shows. Call it when the "
+                "user refers to the window or something on it: open/show/click/go back, 'the "
+                "first one', 'the third screenshot', 'this one', switch to the timeline, "
+                "searches, watchers or settings, or asks what one of the shown memories is about."
+            ),
+            properties={
+                "request": {
+                    "type": "string",
+                    "description": "What the user wants, in their words.",
+                },
+            },
+            required=["request"],
+        )
         list_windows_function = FunctionSchema(
             name="list_windows",
             description="The apps and windows open right now, front to back.",
@@ -593,6 +617,7 @@ class VoiceWorker(PipelineWorker):
                     list_windows_function,
                     show_me_function,
                     past_searches_function,
+                    window_function,
                     recording_function,
                     join_function,
                     snooze_function,
@@ -809,6 +834,16 @@ class VoiceWorker(PipelineWorker):
                 params=JobParams(name="capture", payload={"action": "start" if on else "stop"}),
             )
         await params.result_callback({"recording": on})
+
+    async def _window(self, params: FunctionCallParams):
+        # The ui worker sees the window's accessibility snapshot, acts on the
+        # page, and speaks its own short reply through this pipeline's TTS.
+        request = str(params.arguments.get("request") or "")
+        await self.request_job(self._ui_worker, params=JobParams(name="respond", payload={"query": request}))
+        await params.result_callback(
+            "Handed to the window; it will answer aloud.",
+            properties=FunctionCallResultProperties(run_llm=False),
+        )
 
     async def _past_searches(self, params: FunctionCallParams):
         if self._store is None:

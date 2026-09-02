@@ -207,6 +207,7 @@
   .srow .remove { width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; color: #D9433B; flex-shrink: 0; opacity: 0; }
   .srow:hover .remove { opacity: 1; } .srow .remove:hover { background: rgba(217, 67, 59, .1); }
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  .flash { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; transition: outline-color .3s; }
   .newpanel { width: 360px; flex-shrink: 0; border-left: 1px solid var(--line-soft); background: var(--panel); display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; overflow: hidden; }
   .newpanel h2 { margin: 0; font-size: 14px; font-weight: 600; }
   .field { display: flex; flex-direction: column; gap: 6px; }
@@ -233,21 +234,21 @@
 </style>
 </head>
 <body>
-<nav id="side" data-drag>
+<nav id="side" data-drag aria-label="Sidebar">
   <div class="lights"></div>
-  <div class="nav on" data-screen="ask">
+  <div class="nav on" data-screen="ask" role="button">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5z"/></svg><span>Ask</span>
   </div>
-  <div class="nav" data-screen="searches">
+  <div class="nav" data-screen="searches" role="button">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span>Searches</span>
   </div>
-  <div class="nav" data-screen="timeline">
+  <div class="nav" data-screen="timeline" role="button">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Timeline</span>
   </div>
-  <div class="nav" data-screen="watchers">
+  <div class="nav" data-screen="watchers" role="button">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span>Watchers</span><span class="count" id="wcount"></span>
   </div>
-  <div class="nav" data-screen="settings">
+  <div class="nav" data-screen="settings" role="button">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h8M18 6h2M4 12h2M12 12h8M4 18h10M20 18h0"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span>
   </div>
   <div id="status">
@@ -261,57 +262,57 @@
 
 <div id="main">
   <!-- Ask -->
-  <section class="screen on" id="ask">
+  <section class="screen on" id="ask" aria-label="Ask">
     <div class="head" data-drag><h1>Ask</h1><div class="right"><button class="btn small" id="askclear" hidden>Clear</button></div></div>
     <div class="body">
       <div class="askbar">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3556D6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-        <input id="q" placeholder="What was the PR I looked at this morning?" autofocus>
+        <input id="q" aria-label="Question" placeholder="What was the PR I looked at this morning?" autofocus>
         <span class="chip" id="askchip" hidden></span>
       </div>
-      <div class="answer" id="answer" hidden>
+      <div class="answer" id="answer" hidden role="region" aria-label="Answer">
         <div class="text" id="answertext"></div>
-        <div class="meta" id="answermeta"></div>
+        <div class="meta" id="answermeta" data-a11y-exclude></div>
       </div>
       <div class="section" id="drew" hidden>
         <div class="eyebrow">Memories it drew on</div>
-        <div class="grid" id="drewgrid"></div>
+        <div class="grid" id="drewgrid" role="grid" aria-colcount="3"></div>
       </div>
       <div class="section" id="matches">
         <div class="eyebrow" id="matchhead">Recent</div>
-        <div class="grid" id="matchgrid"></div>
+        <div class="grid" id="matchgrid" role="grid" aria-colcount="3"></div>
       </div>
     </div>
   </section>
 
   <!-- Viewer -->
-  <section class="screen" id="viewer">
+  <section class="screen" id="viewer" aria-label="Viewer">
     <div class="head" data-drag>
-      <span class="btn small" id="back"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span id="backlabel">Ask</span></span>
+      <span class="btn small" id="back" role="button" aria-label="Back"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span id="backlabel">Ask</span></span>
       <div class="who" id="vwho"></div>
       <div class="right"><button class="btn primary" id="openlink" hidden>Open link</button></div>
     </div>
     <div class="stage-row">
-      <div class="stage" id="stage"><div class="none">Pick a memory</div></div>
+      <div class="stage" id="stage" role="img" aria-label="No memory open"><div class="none">Pick a memory</div></div>
       <div class="side-panel">
-        <div class="block"><div class="eyebrow">Window</div><div class="window" id="vwindow"></div></div>
-        <div class="block"><div class="eyebrow">What was on screen</div><div class="desc" id="vdesc"></div></div>
-        <div class="block" id="vverbblock"><div class="eyebrow">Verbatim text</div><div class="verb" id="vverb"></div></div>
+        <div class="block" role="region" aria-label="Window"><div class="eyebrow" data-a11y-exclude>Window</div><div class="window" id="vwindow"></div></div>
+        <div class="block" role="region" aria-label="What was on screen"><div class="eyebrow" data-a11y-exclude>What was on screen</div><div class="desc" id="vdesc"></div></div>
+        <div class="block" id="vverbblock" data-a11y-exclude><div class="eyebrow">Verbatim text</div><div class="verb" id="vverb"></div></div>
         <div class="block" id="vlinkblock" hidden><div class="eyebrow">Link seen</div><a class="link" id="vlink" href="#"></a></div>
         <div class="askframe">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#6E6E73" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5z"/></svg>
-          <input id="askframe" placeholder="Ask about this frame…">
+          <input id="askframe" aria-label="Ask about this frame" placeholder="Ask about this frame…">
         </div>
       </div>
     </div>
     <div class="strip">
-      <div class="tiles" id="tiles"></div>
-      <div class="labels" id="striplabels"></div>
+      <div class="tiles" id="tiles" role="list" aria-label="Filmstrip"></div>
+      <div class="labels" id="striplabels" data-a11y-exclude></div>
     </div>
   </section>
 
   <!-- Timeline -->
-  <section class="screen" id="timeline">
+  <section class="screen" id="timeline" aria-label="Timeline">
     <div class="head" data-drag>
       <div class="left"><h1>Timeline</h1>
         <div class="daypick"><span class="arrow" id="prevday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></span><span class="label" id="daylabel"></span><span class="arrow" id="nextday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
@@ -319,24 +320,24 @@
       <div class="legend" id="legend"></div>
     </div>
     <div class="body" style="gap:0">
-      <div class="tl-head"><div></div><div class="ticks"><span>:00</span><span>:15</span><span>:30</span><span>:45</span><span></span></div><div style="text-align:right">memories</div></div>
-      <div id="rows"></div>
-      <div class="tlstrip" id="tlstrip" hidden></div>
-      <div class="preview" id="preview" hidden></div>
+      <div class="tl-head" data-a11y-exclude><div></div><div class="ticks"><span>:00</span><span>:15</span><span>:30</span><span>:45</span><span></span></div><div style="text-align:right">memories</div></div>
+      <div id="rows" data-a11y-exclude></div>
+      <div class="tlstrip" id="tlstrip" hidden role="list" aria-label="Memories in the selected block"></div>
+      <div class="preview" id="preview" hidden data-a11y-exclude></div>
     </div>
   </section>
 
   <!-- Watchers -->
   <!-- Searches: every question asked, typed or spoken, with its answer -->
-  <section class="screen" id="searches">
-    <div class="head" data-drag><h1>Searches</h1><div class="right"><div class="filter headfilter"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9A9AA0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="sfilter" placeholder="Filter searches"></div></div></div>
-    <div class="slist" id="slist"></div>
+  <section class="screen" id="searches" aria-label="Searches">
+    <div class="head" data-drag><h1>Searches</h1><div class="right"><div class="filter headfilter"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9A9AA0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="sfilter" aria-label="Filter searches" placeholder="Filter searches"></div></div></div>
+    <div class="slist" id="slist" role="list" aria-label="Past searches"></div>
   </section>
 
-  <section class="screen" id="watchers">
+  <section class="screen" id="watchers" aria-label="Watchers">
     <div class="head" data-drag><h1>Watchers</h1><div class="right"><button class="btn primary" id="newwatch">New watcher</button></div></div>
     <div class="wsplit">
-      <div class="wlist" id="wlist"></div>
+      <div class="wlist" id="wlist" role="list" aria-label="Watchers"></div>
       <div class="newpanel" id="newpanel">
         <h2>New watcher</h2>
         <div class="field">
@@ -352,7 +353,7 @@
   </section>
 
   <!-- Settings -->
-  <section class="screen" id="settings">
+  <section class="screen" id="settings" aria-label="Settings">
     <div class="head" data-drag><h1>Settings</h1></div>
     <div class="body">
       <div class="setting">
@@ -377,9 +378,24 @@ let rtviConnected;
 window.peekaboo = {
   rtviReady: new Promise((resolve) => { rtviConnected = resolve; }),
   rtviConnected: () => rtviConnected(),
-  onUICommand({ command, payload }) { handle(command, payload ?? {}); },
+  onUICommand({ command, payload }) { if (!uiCommand(command, payload ?? {})) handle(command, payload ?? {}); },
   onServerMessage(data) { if (data && data.event) handle(data.event, data.payload ?? {}); },
 };
+// Pipecat's built-in UI commands, resolved against the snapshot refs the
+// client assigned. Anything else is one of the app's own pushes.
+const byRef = (p) => (p.ref ? window.peekaboo.findElementByRef(p.ref) : p.target_id ? document.getElementById(p.target_id) : null);
+function uiCommand(command, p) {
+  switch (command) {
+    case "navigate": show(String(p.view || "ask")); return true;
+    case "click": { const el = byRef(p); if (el) { el.scrollIntoView({ block: "nearest" }); el.click(); } return true; }
+    case "scroll_to": byRef(p)?.scrollIntoView({ block: "center", behavior: "smooth" }); return true;
+    case "focus": byRef(p)?.focus(); return true;
+    case "highlight": { const el = byRef(p); if (!el) return true; el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), p.duration_ms || 1600); return true; }
+    case "set_input_value": { const el = byRef(p); if (!el) return true; el.value = p.replace === false ? el.value + String(p.value ?? "") : String(p.value ?? ""); el.dispatchEvent(new Event("input", { bubbles: true })); return true; }
+    case "select_text": { const el = byRef(p); if (!el) return true; const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); return true; }
+    default: return false;
+  }
+}
 async function call(method, params = {}) {
   await window.peekaboo.rtviReady;
   return window.peekaboo.client.sendClientRequest(method, params);
@@ -387,6 +403,7 @@ async function call(method, params = {}) {
 
 // ---- helpers ----------------------------------------------------------
 const $ = (s) => document.querySelector(s);
+const brief = (text, n = 140) => { const t = String(text ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1).replace(/\s\S*$/, "") + "…" : t; };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const STOP = new Set("the a an and or of to in on at for from with was were is are be been my me i it this that what when where how did do does around about looked look see saw".split(" "));
 const keywords = (q) => q.toLowerCase().split(/[^\p{L}\p{N}_./-]+/u).filter((t) => t.length >= 3 && !STOP.has(t));
@@ -451,11 +468,14 @@ function card(o) {
   const el = document.createElement("div");
   el.className = "memcard";
   const verb = (o.verbatim_text || []).slice(0, 3).join(" · ");
+  // What the window agent sees of this card: one line, in the snapshot.
+  el.setAttribute("role", "button");
+  el.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmm(o.ts)}: ${brief(o.title ? `${o.title}. ${o.content}` : o.content)}`);
   el.innerHTML = `
-    <div class="shot">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
-    <div class="who">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${hhmm(o.ts)}</span></div>
-    <div class="title">${esc(o.title || o.content.split(".")[0])}</div>
-    <div class="verbatim">${hi(verb || o.content)}</div>`;
+    <div class="shot" data-a11y-exclude>${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
+    <div class="who" data-a11y-exclude>${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${hhmm(o.ts)}</span></div>
+    <div class="title" data-a11y-exclude>${esc(o.title || o.content.split(".")[0])}</div>
+    <div class="verbatim" data-a11y-exclude>${hi(verb || o.content)}</div>`;
   el.onclick = () => openViewer(o, cardsIn(el.parentNode));
   return el;
 }
@@ -513,6 +533,7 @@ function render() {
   const o = current; if (!o) return;
   $("#vwho").innerHTML = `${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${whenLabel(o.ts)}</span>`;
   $("#stage").innerHTML = o.screenshot_url ? `<img src="${o.screenshot_url}" alt="">` : `<div class="none">The screenshot for this memory has been pruned.</div>`;
+  $("#stage").setAttribute("aria-label", `Screenshot of ${o.app || "the screen"}${o.title ? ` (${o.title})` : ""} at ${whenLabel(o.ts)}`);
   $("#vwindow").textContent = o.title || "—";
   $("#vdesc").innerHTML = hi(o.content);
   const verb = o.verbatim_text || [];
@@ -527,6 +548,7 @@ function render() {
     t.className = "tile" + (s.id === o.id ? " on" : "");
     t.style.background = s.thumbnail_url ? `url("${s.thumbnail_url}") top / cover` : appColor(s.app);
     t.title = `${s.app || "Screen"} · ${hhmmss(s.ts)}`;
+    t.setAttribute("role", "button"); t.setAttribute("aria-label", `${s.app || "Screen"} at ${hhmmss(s.ts)}`); t.setAttribute("aria-selected", s.id === o.id ? "true" : "false");
     t.onclick = () => { current = s; render(); };
     tiles.appendChild(t);
   }
@@ -687,6 +709,8 @@ function renderStrip() {
     f.innerHTML = `<div class="img">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
       <div class="t">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b></div><div class="when">${hhmmss(o.ts)}</div>`;
     f.title = o.title || "";
+    f.setAttribute("role", "button"); f.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmmss(o.ts)}: ${brief(o.title || o.content, 80)}`); f.setAttribute("aria-selected", tlSelected && o.id === tlSelected.id ? "true" : "false");
+    for (const c of f.children) c.setAttribute("data-a11y-exclude", "");
     f.onclick = () => { tlSelected = o; renderStrip(); };
     f.ondblclick = () => openStrip();
     strip.appendChild(f);
@@ -723,6 +747,9 @@ function renderWatchers(state) {
     <span class="bigicon" style="background:var(--accent)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4l2-2z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span>
     <div class="what"><div class="top"><b>Reminders on screen</b><span>any app</span></div><div class="cond">Tell me when a meeting or scheduled event pops up, and offer to open the link</div></div>
     <div class="state"><span class="pill indigo">${builtinOn ? "built in · on" : "built in · off"}</span><span class="sub">watches every frame</span></div><span class="remove builtin"></span>`;
+  builtin.setAttribute("role", "listitem"); builtin.setAttribute("aria-label", `Built-in watcher: reminders on screen${builtinOn ? "" : " (paused)"}`);
+  for (const c of builtin.children) if (!c.matches("input, button")) c.setAttribute("data-a11y-exclude", "");
+  builtin.querySelector(".toggle").setAttribute("aria-label", "Watch for reminders on screen");
   builtin.querySelector(".toggle").onchange = (e) => call("enable_watcher", { id: 0, enabled: e.target.checked });
   list.appendChild(builtin);
   for (const w of watchers) {
@@ -735,6 +762,10 @@ function renderWatchers(state) {
       <div class="what"><div class="top"><b>${esc(isScreen ? "The screen" : app)}</b><span>${esc(w.window_title || "")}</span></div><div class="cond">${esc(w.condition)}</div></div>
       <div class="state">${!on ? `<span class="pill indigo">paused</span>` : w.stale ? `<span class="pill amber"><span class="d"></span>can't see it</span><span class="sub">${esc(w.stale)}</span>` : `<span class="pill green"><span class="d"></span>watching · 1 fps</span>`}</div>
       <button class="remove" title="Remove this watcher">${TRASH}</button>`;
+    el.setAttribute("role", "listitem"); el.setAttribute("aria-label", `Watcher on ${isScreen ? "the screen" : app}: ${w.condition}${on ? "" : " (paused)"}`);
+    for (const c of el.children) if (!c.matches("input, button")) c.setAttribute("data-a11y-exclude", "");
+    el.querySelector(".toggle").setAttribute("aria-label", on ? "Pause this watcher" : "Resume this watcher");
+    el.querySelector(".remove").setAttribute("aria-label", "Remove this watcher");
     el.querySelector(".toggle").onchange = (e) => call("enable_watcher", { id: w.id, enabled: e.target.checked });
     el.querySelector(".remove").onclick = async () => { await call("unwatch", { id: w.id }); };
     list.appendChild(el);
@@ -756,8 +787,8 @@ function renderPicker() {
     p.insertAdjacentHTML("beforeend", `<div class="app${appSel ? " sel" : ""}" data-app="${esc(a.app)}">${appIcon(a.app)}<span>${esc(a.app)}</span><span class="n">${a.windows.length} window${a.windows.length === 1 ? "" : "s"}</span></div>`
       + wins.map((w) => `<div class="win${pickerSel && pickerSel.app === a.app && pickerSel.title === w.title ? " sel" : ""}" data-app="${esc(a.app)}" data-title="${esc(w.title)}">${esc(w.title || "(untitled)")}${w.tabs ? `<span class="n mono" style="margin-left:auto;font-size:10.5px;color:var(--faint)">${w.tabs + 1} tabs</span>` : ""}</div>`).join(""));
   }
-  p.querySelectorAll(".app").forEach((el) => (el.onclick = () => { pickerSel = { app: el.dataset.app, title: null }; renderPicker(); }));
-  p.querySelectorAll(".win").forEach((el) => (el.onclick = () => { pickerSel = { app: el.dataset.app, title: el.dataset.title }; renderPicker(); }));
+  p.querySelectorAll(".app").forEach((el) => { el.setAttribute("role", "button"); el.setAttribute("aria-label", `App ${el.dataset.app}`); el.onclick = () => { pickerSel = { app: el.dataset.app, title: null }; renderPicker(); }; });
+  p.querySelectorAll(".win").forEach((el) => { el.setAttribute("role", "button"); el.setAttribute("aria-label", `${el.dataset.app} window: ${el.dataset.title}`); el.onclick = () => { pickerSel = { app: el.dataset.app, title: el.dataset.title }; renderPicker(); }; });
 }
 $("#wfilter").addEventListener("input", renderPicker);
 $("#startwatch").onclick = async () => {
@@ -841,6 +872,9 @@ function renderSearches() {
     const row = document.createElement("div"); row.className = "srow";
     row.innerHTML = `<div class="when">${hhmm(a.ts)}</div><div class="what"><div class="q"><span>${esc(a.question)}</span><span class="src">${a.source === "voice" ? "voice" : "typed"}</span></div><div class="a">${esc(a.answer)}</div></div>
       <button class="remove" title="Forget this search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>`;
+    row.setAttribute("role", "button"); row.setAttribute("aria-label", `${hhmm(a.ts)} ${a.source === "voice" ? "asked" : "typed"}: ${a.question} — ${brief(a.answer, 100)}`);
+    for (const c of row.children) if (!c.matches("button")) c.setAttribute("data-a11y-exclude", "");
+    row.querySelector(".remove").setAttribute("aria-label", "Forget this search");
     row.onclick = () => openAsk(a.id);
     row.querySelector(".remove").onclick = async (e) => { e.stopPropagation(); await call("ask_delete", { id: a.id }); loadSearches(); };
     list.appendChild(row);
@@ -886,7 +920,8 @@ function handle(event, payload) {
      bridge: RTVI envelopes travel as {rtvi: ...} messages both ways, and the
      pipeline's own transport carries them to and from the RTVI processor. -->
 <script type="module">
-import { PipecatClient, Transport, RTVIMessage, RTVIEvent } from "./vendor/pipecat-client.js";
+import { PipecatClient, Transport, RTVIMessage, findElementByRef } from "./vendor/pipecat-client.js";
+window.peekaboo.findElementByRef = findElementByRef;
 
 const log = (...args) => window.webkit.messageHandlers.peekaboo.postMessage({ method: "log", params: args.map(String).join(" ") });
 
@@ -930,7 +965,14 @@ const client = new PipecatClient({
   },
 });
 window.peekaboo.client = client;
-client.connect().then(() => { log("rtvi: connected"); window.peekaboo.rtviConnected(); }).catch((e) => log("rtvi: connect failed:", e));
+client.connect().then(() => {
+  log("rtvi: connected");
+  window.peekaboo.rtviConnected();
+  // The window agent sees the page as accessibility snapshots, sent when
+  // the page changes (debounced); the excluded parts are the timeline's
+  // minute cells, thumbnails, and repeated text.
+  client.startUISnapshotStream({ debounceMs: 400 });
+}).catch((e) => log("rtvi: connect failed:", e));
 </script>
 </body>
 </html>

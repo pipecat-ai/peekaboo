@@ -23,6 +23,7 @@ from sources.transport import TransportScreenSource
 from store.sqlite_store import SQLiteStore
 from workers.history import HistoryWorker
 from workers.screen import ScreenWorker
+from workers.ui import PeekabooUIWorker
 from workers.vision import VisionWorker
 from workers.voice import VoiceWorker
 
@@ -81,8 +82,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     screen = ScreenWorker(store=store, source=source)
     vision = VisionWorker(store=store)
     history = HistoryWorker(store=store)
+    ui = PeekabooUIWorker()
 
-    await runner.add_workers(history, screen, vision, voice)
+    await runner.add_workers(history, screen, vision, voice, ui)
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):

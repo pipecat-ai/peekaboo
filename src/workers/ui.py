@@ -1,0 +1,117 @@
+#
+# Copyright (c) 2025, Daily
+#
+# SPDX-License-Identifier: BSD 2-Clause License
+#
+
+"""The ui worker: drives the Peekaboo window by voice.
+
+A Pipecat ``UIWorker``: the page streams accessibility snapshots of itself
+over RTVI, the voice worker hands over anything the user says about the
+window ("open the first one", "go to the timeline", "what's the third one
+about"), and this worker resolves it against the snapshot and acts through
+UI commands the page executes. Its short spoken reply goes straight to the
+voice worker's TTS.
+"""
+
+import os
+from typing import Optional
+
+from loguru import logger
+from pipecat.bus.messages import BusMessage
+from pipecat.bus.ui.messages import _UI_SNAPSHOT_BUS_EVENT_NAME, BusUIEventMessage
+from pipecat.processors.frameworks.rtvi.models import Navigate
+from pipecat.services.anthropic.llm import AnthropicLLMService
+from pipecat.services.llm_service import FunctionCallParams
+from pipecat.workers.llm.tool_decorator import tool
+from pipecat.workers.ui.ui_worker import UIWorker
+
+from workers.names import UI_WORKER
+
+UI_MODEL = "claude-haiku-4-5"
+UI_MAX_TOKENS = 400
+
+SCREENS = ("ask", "searches", "timeline", "watchers", "settings")
+
+UI_INSTRUCTION = """\
+You operate the Peekaboo window for a user who is speaking, not typing.
+Peekaboo remembers what was on their Mac's screen; the window shows those
+memories. Its screens: Ask (a question box, the answer, and grids of memory
+cards), Searches (past questions), Timeline (a day by the hour), Watchers,
+Settings, and a Viewer that opens when a memory card is clicked (the full
+screenshot, what was on screen, a filmstrip of neighbouring frames).
+
+Each request comes with the current <ui_state>. Memory cards are buttons
+named "<app> at <time>: <what was on screen>", listed in reading order in a
+grid three across. Resolve "the first one", "the third screenshot", "the
+terminal one", "this" against that state.
+
+Answer with exactly one call to [reply]:
+- To open a memory, pass its ref as `click`. To go back, click the "Back"
+  button. To switch screens, pass `navigate` with one of: ask, searches,
+  timeline, watchers, settings.
+- To answer a question about what is shown ("what's the third one about"),
+  read it off the state and say it; do not click unless asked to open it.
+- `answer` is spoken aloud as is: one short sentence, plain words, no
+  markup. For an action, a few words ("Opening the terminal one."). If the
+  request does not match anything on the window, say so in one sentence.
+"""
+
+
+class PeekabooUIWorker(UIWorker):
+    """Peekaboo's window agent: Haiku over the page's accessibility snapshot,
+    one ``reply`` tool that acts and speaks."""
+
+    def __init__(self, name: str = UI_WORKER):
+        llm = AnthropicLLMService(
+            name="UIAnthropicLLMService",
+            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            retry_on_timeout=True,
+            settings=AnthropicLLMService.Settings(
+                model=UI_MODEL,
+                max_tokens=UI_MAX_TOKENS,
+                system_instruction=UI_INSTRUCTION,
+            ),
+        )
+        super().__init__(name, llm=llm)
+
+    @tool
+    async def reply(
+        self,
+        params: FunctionCallParams,
+        answer: str,
+        click: Optional[str] = None,
+        navigate: Optional[str] = None,
+        highlight: Optional[list[str]] = None,
+        scroll_to: Optional[str] = None,
+    ):
+        """Reply to the user and act on the window. Called exactly once per request.
+
+        Args:
+            answer: What to say, spoken aloud as is. One short sentence.
+            click: Ref of an element to click, such as a memory card to open it or the Back button.
+            navigate: Screen to switch to: ask, searches, timeline, watchers, or settings.
+            highlight: Refs of elements to flash briefly, to point at them.
+            scroll_to: Ref of an element to bring into view.
+        """
+        if navigate:
+            view = navigate.strip().lower()
+            if view in SCREENS:
+                await self.send_command("navigate", Navigate(view=view))
+            else:
+                logger.warning(f"{self}: no screen named {navigate!r}")
+        if scroll_to:
+            await self.scroll_to(scroll_to)
+        for ref in highlight or []:
+            await self.highlight(ref)
+        if click:
+            await self.click(click)
+        await self.respond_to_job(answer, tts_speak=True)
+        await params.result_callback(None)
+
+    async def on_bus_message(self, message: BusMessage) -> None:
+        await super().on_bus_message(message)
+        if isinstance(message, BusUIEventMessage) and message.event_name == _UI_SNAPSHOT_BUS_EVENT_NAME:
+            state = self.render_ui_state()
+            logger.debug(f"{self}: snapshot, {state.count(chr(10)) + 1} lines, ~{len(state) // 4} tokens")
+            logger.trace(f"{self}: {state}")

@@ -35,6 +35,7 @@ import objc
 from dotenv import load_dotenv
 from Foundation import NSObject, NSTimer
 from loguru import logger
+from pipecat.pipeline.job_context import JobParams
 from pipecat.workers.runner import WorkerRunner
 from PyObjCTools import AppHelper
 
@@ -47,7 +48,9 @@ from sources.macos import ScreenCaptureSource
 from store.sqlite_store import SQLiteStore
 from workers.history import HistoryWorker
 from workers.screen import ScreenWorker
+from workers.names import UI_WORKER
 from workers.shell import ShellWorker
+from workers.ui import PeekabooUIWorker
 from workers.vision import VisionWorker
 from workers.voice import VoiceWorker
 
@@ -162,9 +165,10 @@ class App:
         screen = ScreenWorker(store=store, source=source)
         vision = VisionWorker(store=store)
         history = HistoryWorker(store=store)
-        await self.runner.add_workers(history, screen, vision, voice, self.shell)
+        ui = PeekabooUIWorker()
+        await self.runner.add_workers(history, screen, vision, voice, self.shell, ui)
         # Development hooks: open the page, poke it, picture it.
-        dev = self.args.open_memories or self.args.snapshot_memories or self.args.memories_eval
+        dev = self.args.open_memories or self.args.snapshot_memories or self.args.memories_eval or self.args.window_request
         if dev and self.memories:
             self.memories.open()
 
@@ -172,6 +176,11 @@ class App:
                 await asyncio.sleep(4)
                 if self.args.memories_eval:
                     self.memories.evaluate(self.args.memories_eval)
+                if self.args.window_request:
+                    await asyncio.sleep(3)  # the page's snapshot stream is up by then
+                    await voice.request_job(
+                        UI_WORKER, params=JobParams(name="respond", payload={"query": self.args.window_request})
+                    )
                     await asyncio.sleep(20)
                 if self.args.snapshot_memories:
                     self.memories.snapshot(self.args.snapshot_memories)
@@ -289,6 +298,7 @@ def parse_args():
     parser.add_argument("--open-memories", action="store_true", help="open the memories window on launch")
     parser.add_argument("--snapshot-memories", type=Path, help="write a PNG of the memories page after launch")
     parser.add_argument("--memories-eval", metavar="JS", help="run JavaScript in the memories page after launch")
+    parser.add_argument("--window-request", metavar="TEXT", help="hand TEXT to the window agent after launch, as if said by voice")
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser.parse_args()
 

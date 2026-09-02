@@ -21,6 +21,15 @@ turns:
         calls:
           - name: watch
 
+  # Talking about the window goes to the ui worker, which answers on its own
+  # (no llm_response from the voice LLM). Placed before the turns that speak
+  # a real answer: a typed turn arriving mid-speech is an interruption.
+  - user: "Open the first one."
+    expect:
+      - event: function_call
+        calls:
+          - name: window
+
   # Remembering an earlier question goes to the searches, not the screen.
   - user: "Yesterday I remember asking you about a pull request. What was it?"
     expect:
