@@ -71,8 +71,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     voice = VoiceWorker(
         transport,
         screen_from_transport=True,
-        # Under the eval transport a meeting link is logged, not opened.
+        # Under the eval transport a meeting link is logged, not opened, and
+        # typed turns carry no wake phrase.
         open_links=not isinstance(transport, EvalTransport),
+        wake_word=not isinstance(transport, EvalTransport),
+        store=store,
         idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
     )
     screen = ScreenWorker(store=store, source=source)

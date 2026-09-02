@@ -5,10 +5,14 @@
 #
 
 import asyncio
+from datetime import datetime
+import io
 import os
 import re
+import wave
 import webbrowser
-from collections.abc import Callable
+from pathlib import Path
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import TYPE_CHECKING, Literal, Optional
 
 from loguru import logger
@@ -23,12 +27,20 @@ from pipecat.bus.messages import (
     BusJobUpdateUrgentMessage,
 )
 from pipecat.frames.frames import (
+    Frame,
     FunctionCallResultProperties,
     LLMMessagesAppendFrame,
     LLMMessagesUpdateFrame,
+    TTSAudioRawFrame,
     TTSSpeakFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
+    TranscriptionFrame,
 )
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.bus.messages import BusJobRequestMessage
 from pipecat.pipeline.job_context import JobError, JobParams, JobStatus
+from pipecat.pipeline.job_decorator import job
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -36,18 +48,22 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
+from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.services.anthropic.llm import AnthropicLLMService
-from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.cartesia.tts import CartesiaHttpTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.services.moonshine.stt import MoonshineSTTService
 from pipecat.transports.base_transport import BaseTransport
 
 from moments import Moment, MomentKind, MomentPolicy
 from processors.conversation import ConversationState
+from processors.wake import LocalTranscriptionFrame, WakeGate
 from processors.screen_bridge import ScreenBridge
 from workers.names import SCREEN_WORKER, VISION_WORKER, VOICE_WORKER
 
 if TYPE_CHECKING:
+    from store.sqlite_store import SQLiteStore
     from macos.registry import WindowRegistry
 
 # A meeting reminder nobody acted on stops mattering a while after the start.
@@ -62,13 +78,22 @@ VOICE_MODEL = "claude-haiku-4-5"
 LOOK_FILLER = "One moment."
 WATCH_FILLER = "I'll let you know."
 
+# Spoken on launch. The first time a voice says it the audio is kept as a WAV
+# under the store, and every launch after that plays the file: no TTS call.
+GREETING = "Welcome to Peekaboo."
+
 # list_windows is read to a model, not a person; keep it short.
 MAX_LISTED_WINDOWS = 25
 
-# Where speech recognition and synthesis run. "cloud" is Deepgram and
-# Cartesia; "local" is Moonshine and Kokoro on the machine, imported only when
-# chosen so the default start does not load ONNX models.
+# Where speech runs. Recognition always starts on the machine: Moonshine hears
+# everything and only what follows the wake phrase goes further. "cloud" then
+# connects Deepgram for the conversation and speaks through Cartesia over
+# HTTP, a request per utterance, so nothing is connected while idle. "local"
+# stays on the machine throughout, with Kokoro speaking.
 SpeechServices = Literal["cloud", "local"]
+
+# Spoken when the wake phrase comes alone.
+WAKE_ACK = "Yes?"
 
 # Cartesia voice when CARTESIA_VOICE_ID is not set: British Reading Lady.
 CARTESIA_VOICE = "71a7ad14-091c-4e8e-a314-022ece01c121"
@@ -115,6 +140,14 @@ Tool-use rules:
 - After an answer about the past, "show me" means call [show_me]: it opens
   the screenshots behind that answer in a window.
 
+- If the user refers to something they asked or searched before ("what did I
+  ask yesterday", "I remember searching for", "what did you tell me about"),
+  call [past_searches] and answer from what it returns: when they asked, what
+  they asked, and what the answer was, briefly.
+
+- "Start recording", "pause recording", "stop recording" mean call
+  [set_recording]. Recording is what builds the memory of the screen.
+
 - Reminders about meetings or scheduled events that appeared on the screen
   arrive as developer messages. Tell the user in one short sentence and, if
   there is a link, ask whether to open it. When they agree, call
@@ -127,6 +160,141 @@ Be extremely brief. All responses are spoken aloud. Avoid emojis, bullet points,
 or anything difficult to vocalize.
 
 """
+
+
+# Cached audio is played in chunks this long, like TTS output.
+PLAYBACK_CHUNK_SECS = 0.02
+
+
+class LocalMoonshineSTTService(MoonshineSTTService):
+    """Moonshine whose transcripts are marked as local, so the wake gate can
+    tell them from the cloud recognizer's."""
+
+    async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame | None, None]:
+        async for frame in super().run_stt(audio):
+            if isinstance(frame, TranscriptionFrame):
+                frame = LocalTranscriptionFrame(
+                    text=frame.text,
+                    user_id=frame.user_id,
+                    timestamp=frame.timestamp,
+                    language=frame.language,
+                    result=frame.result,
+                    finalized=frame.finalized,
+                )
+            yield frame
+
+
+# Audio kept while the cloud recognizer connects: the question that follows a
+# bare "Peekaboo" must not be lost to the handshake.
+WAKE_BUFFER_MAX_BYTES = 16000 * 2 * 10
+
+
+class OnDemandDeepgramSTTService(DeepgramSTTService):
+    """Deepgram that is connected only while the wake gate is awake.
+
+    The stock service connects in ``setup`` and holds the websocket for the
+    life of the pipeline. This one waits for :meth:`wake`, and :meth:`sleep`
+    closes the connection again. Asleep, audio is dropped; while the
+    connection is being made it is kept and sent first once it is up.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._waking = False
+        self._pending = bytearray()
+
+    async def setup(self, setup: FrameProcessorSetup):
+        # Everything the parent sets up, minus the connection.
+        await super(DeepgramSTTService, self).setup(setup)
+
+    async def wake(self):
+        if self._connection_task or self._waking:
+            return
+        logger.info(f"{self}: connecting")
+        self._waking = True
+        self._pending = bytearray()
+        self.create_task(self._connect_in_background(), name="deepgram-wake")
+
+    async def _connect_in_background(self):
+        try:
+            await self._connect()
+        finally:
+            self._waking = False
+
+    async def sleep(self):
+        self._pending = bytearray()
+        if self._connection_task:
+            logger.info(f"{self}: disconnecting")
+            await self._disconnect()
+
+    async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame | None, None]:
+        if not self._connection:
+            if self._waking:
+                self._pending += audio
+                if len(self._pending) > WAKE_BUFFER_MAX_BYTES:
+                    del self._pending[: len(self._pending) - WAKE_BUFFER_MAX_BYTES]
+            yield None
+            return
+        if self._pending:
+            held, self._pending = bytes(self._pending), bytearray()
+            async for frame in super().run_stt(held):
+                yield frame
+        async for frame in super().run_stt(audio):
+            yield frame
+
+
+class GreetingRecorder(FrameProcessor):
+    """Sits after TTS. When armed, keeps the next utterance's audio and writes
+    it to a WAV once it ends, then stands down. Everything passes through.
+
+    It also plays cached audio: pushed from here it reaches only the transport
+    output. Queued at the head of the pipeline it would pass through STT and
+    be transcribed as the user's words, and the LLM would answer it.
+    """
+
+    async def play(self, pcm: bytes, rate: int):
+        """Play PCM as if TTS had produced it."""
+        await self.push_frame(TTSStartedFrame())
+        step = int(rate * PLAYBACK_CHUNK_SECS) * 2
+        for start in range(0, len(pcm), step):
+            await self.push_frame(TTSAudioRawFrame(audio=pcm[start : start + step], sample_rate=rate, num_channels=1))
+        await self.push_frame(TTSStoppedFrame())
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._path: Optional[Path] = None
+        self._chunks: list[bytes] = []
+        self._rate = 0
+
+    def arm(self, path: Path):
+        self._path = path
+        self._chunks = []
+        self._rate = 0
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if self._path is not None:
+            if isinstance(frame, TTSAudioRawFrame) and frame.num_channels == 1:
+                self._chunks.append(frame.audio)
+                self._rate = frame.sample_rate
+            elif isinstance(frame, TTSStoppedFrame):
+                self._finish()
+        await self.push_frame(frame, direction)
+
+    def _finish(self):
+        path, self._path = self._path, None
+        if not self._chunks or not self._rate:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with wave.open(str(path), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(self._rate)
+                w.writeframes(b"".join(self._chunks))
+            logger.info(f"{self}: greeting cached to {path}")
+        except OSError as e:
+            logger.warning(f"{self}: could not cache the greeting: {e}")
 
 
 class VoiceWorker(PipelineWorker):
@@ -161,6 +329,13 @@ class VoiceWorker(PipelineWorker):
         registry: Optional["WindowRegistry"] = None,
         on_state: Optional[Callable[[str], None]] = None,
         on_show: Optional[Callable[[list[int]], None]] = None,
+        on_asked: Optional[Callable[[str], None]] = None,
+        on_show_ask: Optional[Callable[[int], None]] = None,
+        store: Optional["SQLiteStore"] = None,
+        on_answer: Optional[Callable[[str, str, list[int]], Awaitable[None]]] = None,
+        on_recording: Optional[Callable[[bool], Awaitable[None]]] = None,
+        greeting_cache: Optional[Path] = None,
+        wake_word: bool = True,
         quiet_checks: Optional[list[Callable[[], bool]]] = None,
         idle_timeout_secs: float | None = None,
         **kwargs,
@@ -172,6 +347,19 @@ class VoiceWorker(PipelineWorker):
         self._speech = speech
         self._registry = registry
         self._on_show = on_show
+        self._on_asked = on_asked
+        self._on_show_ask = on_show_ask
+        self._store = store
+        self._on_answer = on_answer
+        self._on_recording = on_recording
+        # The question behind each look job, for the memories window.
+        self._look_questions: dict[str, str] = {}
+        self._recording = True
+        self._greeting_cache = greeting_cache
+        self._greeting_recorder = GreetingRecorder()
+        self._wake_word = wake_word
+        self._wake_gate: Optional[WakeGate] = None
+        self._cloud_stt: Optional[OnDemandDeepgramSTTService] = None
         # The observations behind the last spoken answer, for "show me".
         self._last_ids: list[int] = []
         self._screen_bridge = (
@@ -204,31 +392,58 @@ class VoiceWorker(PipelineWorker):
             **kwargs,
         )
 
-    def _speech_services(self):
-        if self._speech == "local":
-            # Speech in both directions stays on the machine: Moonshine
-            # transcribes each turn once it ends (ONNX on the CPU), Kokoro
-            # synthesizes. Both download their models on first use.
-            from pipecat.services.kokoro.tts import KokoroTTSService
-            from pipecat.services.moonshine.stt import MoonshineSTTService
+    def _speech_services(self) -> list[FrameProcessor]:
+        """The recognition stage and the synthesizer: ``[*stt, tts]``.
 
-            stt = MoonshineSTTService()
+        Recognition is Moonshine on the machine, always, hearing everything
+        (its transcripts are what the wake gate reads). In cloud mode Deepgram
+        follows it, connected only while the gate is awake, and Cartesia
+        speaks over HTTP. In local mode Kokoro speaks and nothing is ever
+        connected.
+        """
+        # Audio passes through Moonshine so the cloud recognizer behind it
+        # can hear too, once awake. The gate comes last and sees both
+        # recognizers' transcripts.
+        stage: list[FrameProcessor] = [LocalMoonshineSTTService(audio_passthrough=True)]
+        if self._speech == "local":
+            from pipecat.services.kokoro.tts import KokoroTTSService
+
             tts = KokoroTTSService(
                 settings=KokoroTTSService.Settings(voice=KOKORO_VOICE),
                 stop_frame_timeout_s=TTS_IDLE_TIMEOUT_SECS,
             )
         else:
-            stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
-            tts = CartesiaTTSService(
+            self._cloud_stt = OnDemandDeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+            stage.append(self._cloud_stt)
+            tts = CartesiaHttpTTSService(
                 api_key=os.getenv("CARTESIA_API_KEY"),
-                settings=CartesiaTTSService.Settings(
-                    voice=os.getenv("CARTESIA_VOICE_ID") or CARTESIA_VOICE
-                ),
+                settings=CartesiaHttpTTSService.Settings(voice=os.getenv("CARTESIA_VOICE_ID") or CARTESIA_VOICE),
             )
-        return stt, tts
+        if self._wake_word:
+            self._wake_gate = WakeGate(
+                on_wake=self._on_wake,
+                on_sleep=self._on_sleep,
+                on_acknowledge=lambda: self.say(WAKE_ACK),
+            )
+            stage.append(self._wake_gate)
+        return [*stage, tts]
+
+    async def _on_wake(self):
+        if self._cloud_stt:
+            await self._cloud_stt.wake()
+
+    async def _on_sleep(self):
+        if self._cloud_stt:
+            await self._cloud_stt.sleep()
+
+    def _voice_key(self) -> str:
+        """Which voice speaks: the greeting cache is per voice."""
+        if self._speech == "local":
+            return f"kokoro-{KOKORO_VOICE}"
+        return f"cartesia-{os.getenv('CARTESIA_VOICE_ID') or CARTESIA_VOICE}"
 
     def _build_pipeline(self) -> Pipeline:
-        stt, tts = self._speech_services()
+        *stt, tts = self._speech_services()
 
         llm = AnthropicLLMService(
             name="VoiceAnthropicLLMService",
@@ -245,6 +460,8 @@ class VoiceWorker(PipelineWorker):
         llm.register_function("list_watchers", self._list_watchers)
         llm.register_function("list_windows", self._list_windows)
         llm.register_function("show_me", self._show_me)
+        llm.register_function("past_searches", self._past_searches)
+        llm.register_function("set_recording", self._set_recording)
         llm.register_function("join_meeting", self._join_meeting)
         llm.register_function("snooze_reminder", self._snooze_reminder)
 
@@ -303,6 +520,13 @@ class VoiceWorker(PipelineWorker):
             required=[],
         )
 
+        recording_function = FunctionSchema(
+            name="set_recording",
+            description="Start or pause recording the screen into memory.",
+            properties={"on": {"type": "boolean", "description": "True to record, false to pause."}},
+            required=["on"],
+        )
+
         show_me_function = FunctionSchema(
             name="show_me",
             description=(
@@ -313,6 +537,21 @@ class VoiceWorker(PipelineWorker):
             required=[],
         )
 
+        past_searches_function = FunctionSchema(
+            name="past_searches",
+            description=(
+                "Find questions the user asked before and what was answered. Call it when the "
+                "user refers to an earlier question or search: 'what did I ask yesterday', "
+                "'I remember searching for...', 'what did you tell me about...'."
+            ),
+            properties={
+                "query": {
+                    "type": "string",
+                    "description": "A few words from the earlier question or its answer. Empty for the most recent ones.",
+                },
+            },
+            required=["query"],
+        )
         list_windows_function = FunctionSchema(
             name="list_windows",
             description="The apps and windows open right now, front to back.",
@@ -353,6 +592,8 @@ class VoiceWorker(PipelineWorker):
                     list_watchers_function,
                     list_windows_function,
                     show_me_function,
+                    past_searches_function,
+                    recording_function,
                     join_function,
                     snooze_function,
                 ]
@@ -370,11 +611,12 @@ class VoiceWorker(PipelineWorker):
 
         processors = [
             self._transport.input(),
-            stt,
+            *stt,
             aggregators.user(),
             llm,
             self._state,  # Who is talking, for the moment policy
             tts,
+            self._greeting_recorder,  # Keeps the greeting's audio the first time
             self._transport.output(),
             aggregators.assistant(),
         ]
@@ -385,26 +627,25 @@ class VoiceWorker(PipelineWorker):
 
         return Pipeline(processors)
 
-    async def start_session(self, client_id: str):
+    async def start_session(self, client_id: str, *, recording: bool = True):
         """Kick off the conversation once the client is connected.
 
-        Call after screen capture is enabled on the transport.
+        Call after screen capture is enabled on the transport. With
+        ``recording`` false the screen worker is left idle until asked.
         """
         if self._screen_bridge:
             self._screen_bridge.set_client_id(client_id)
+        self._recording = recording
 
-        # A fresh conversation per connection.
-        await self.queue_frame(
-            LLMMessagesUpdateFrame(
-                messages=[{"role": "developer", "content": "Ask the user how you can help."}],
-                run_llm=True,
+        # A fresh conversation per connection, opened with a fixed line and no
+        # LLM call; from the cache when this voice has said it before.
+        await self.queue_frame(LLMMessagesUpdateFrame(messages=[], run_llm=False))
+        await self._greet()
+
+        if recording:
+            await self.request_job(
+                self._screen_worker, params=JobParams(name="capture", payload={"action": "start"})
             )
-        )
-
-        # Screen capture is on: let the screen worker start asking for frames.
-        await self.request_job(
-            self._screen_worker, params=JobParams(name="capture", payload={"action": "start"})
-        )
 
         # Reminders the screen worker spots on screen, delivered as updates on
         # this long-lived job.
@@ -420,6 +661,21 @@ class VoiceWorker(PipelineWorker):
             task, self._moments_task = self._moments_task, None
             await self.cancel_task(task)
         await super().cleanup()
+
+    async def _greet(self):
+        cached = self._greeting_cache / f"{self._voice_key()}.wav" if self._greeting_cache else None
+        if cached and cached.exists():
+            try:
+                with wave.open(str(cached), "rb") as w:
+                    rate, pcm = w.getframerate(), w.readframes(w.getnframes())
+                logger.info(f"{self}: greeting from {cached.name}")
+                await self._greeting_recorder.play(pcm, rate)
+                return
+            except (OSError, wave.Error) as e:
+                logger.warning(f"{self}: cached greeting unusable, speaking it: {e}")
+        if cached:
+            self._greeting_recorder.arm(cached)
+        await self.say(GREETING)
 
     async def say(self, text: str):
         """Speak text directly, bypassing the LLM.
@@ -485,18 +741,32 @@ class VoiceWorker(PipelineWorker):
             params=JobParams(name="look", payload={"query": question, "target": target}),
         )
         self._look_jobs.add(job_id)
+        self._look_questions[job_id] = question
+        if self._on_asked:
+            self._on_asked(question)
         await self._acknowledge(params, LOOK_FILLER)
 
     async def _watch(self, params: FunctionCallParams):
         condition = str(params.arguments.get("condition", ""))
         target = str(params.arguments.get("target") or "")
+        await self._start_watch(condition, target)
+        await self._acknowledge(params, WATCH_FILLER)
 
+    async def _start_watch(self, condition: str, target: str) -> str:
         job_id = await self.request_job(
             self._screen_worker,
             params=JobParams(name="watch", payload={"query": condition, "target": target}),
         )
         self._watch_jobs.add(job_id)
-        await self._acknowledge(params, WATCH_FILLER)
+        return job_id
+
+    @job(name="watch")
+    async def _watch_job(self, message: BusJobRequestMessage):
+        """A watcher asked for from the app rather than aloud. Created here so
+        its hits become spoken moments like any other."""
+        payload = message.payload or {}
+        job_id = await self._start_watch(str(payload.get("condition", "")), str(payload.get("target") or ""))
+        await self.send_job_response(message.job_id, {"started": True, "job_id": job_id})
 
     async def _acknowledge(self, params: FunctionCallParams, filler: str):
         await self.say(filler)
@@ -528,6 +798,42 @@ class VoiceWorker(PipelineWorker):
             return
         await params.result_callback(t.response or {})
 
+    async def _set_recording(self, params: FunctionCallParams):
+        on = bool(params.arguments.get("on", True))
+        self._recording = on
+        if self._on_recording is not None:
+            await self._on_recording(on)
+        else:
+            await self.request_job(
+                self._screen_worker,
+                params=JobParams(name="capture", payload={"action": "start" if on else "stop"}),
+            )
+        await params.result_callback({"recording": on})
+
+    async def _past_searches(self, params: FunctionCallParams):
+        if self._store is None:
+            await params.result_callback({"error": "no memory of past searches here"})
+            return
+        query = str(params.arguments.get("query") or "")
+        asks = await self._store.search_asks(query, limit=5)
+        if asks and self._on_show_ask:
+            # The window jumps to the best match while it is read back.
+            self._on_show_ask(asks[0].id)
+        await params.result_callback(
+            {
+                "now": datetime.now().astimezone().strftime("%A %Y-%m-%d %H:%M"),
+                "searches": [
+                    {
+                        "when": datetime.fromtimestamp(a.ts).astimezone().strftime("%A %Y-%m-%d %H:%M"),
+                        "question": a.question,
+                        "answer": a.answer,
+                        "asked": "by voice" if a.source == "voice" else "typed",
+                    }
+                    for a in asks
+                ],
+            }
+        )
+
     async def _show_me(self, params: FunctionCallParams):
         if not self._last_ids or self._on_show is None:
             await params.result_callback({"opened": False, "reason": "nothing to show yet"})
@@ -539,11 +845,13 @@ class VoiceWorker(PipelineWorker):
         if self._registry is None:
             await params.result_callback({"windows": [], "note": "Only the shared screen is available."})
             return
+        from macos.registry import collapse_tabs
+
         app = str(params.arguments.get("app") or "").strip().lower()
         windows = [
-            {"app": w.app, "title": w.title, "on_screen": w.on_screen}
-            for w in self._registry.windows
-            if not app or app in w.app.lower()
+            {"app": w.app, "title": w.title, "on_screen": w.on_screen, **({"tabs": list(w.tabs)} if w.tabs else {})}
+            for w in collapse_tabs(self._registry.windows)
+            if w.title.strip() and (not app or app in w.app.lower())
         ]
         await params.result_callback({"windows": windows[:MAX_LISTED_WINDOWS]})
 
@@ -581,6 +889,11 @@ class VoiceWorker(PipelineWorker):
         if update.get("moment"):
             self._moments.enqueue(self._meeting_moment(update["moment"]))
             return
+        hit = update.get("hit")
+        if hit:
+            # From a watcher restored at startup, delivered on the subscribe job.
+            self._moments.enqueue(Moment(kind=MomentKind.WATCH, text=hit))
+            return
         warning = update.get("warning")
         if warning:
             # A watched window went out of sight, or came back. Spoken for
@@ -595,6 +908,7 @@ class VoiceWorker(PipelineWorker):
         await super().on_job_response(message)
         self._look_jobs.discard(message.job_id)
         self._watch_jobs.discard(message.job_id)
+        question = self._look_questions.pop(message.job_id, None)
         if message.status == JobStatus.CANCELLED:
             return
         response = message.response or {}
@@ -603,6 +917,9 @@ class VoiceWorker(PipelineWorker):
         text = response.get("answer")
         if text:
             self._moments.enqueue(Moment(kind=MomentKind.ANSWER, text=text))
+            if question is not None and self._on_answer:
+                # The window shows what is being said and the frames behind it.
+                await self._on_answer(question, text, list(self._last_ids))
 
     async def on_job_error(self, message: BusJobResponseMessage | BusJobResponseUrgentMessage):
         await super().on_job_error(message)

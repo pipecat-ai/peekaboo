@@ -51,6 +51,8 @@ from workers.ui import UIWorker
 from workers.vision import VisionWorker
 from workers.voice import VoiceWorker
 
+APP_ICON = Path(__file__).parent / "macos" / "assets" / "appicon.png"
+
 # Plan §5: the store lives where Mac apps keep their data.
 DEFAULT_STORE = Path("~/Library/Application Support/Peekaboo").expanduser()
 
@@ -128,7 +130,7 @@ class App:
         # voice pipeline carries audio only. Signals are AppKit's business on
         # the main thread, so the runner leaves SIGINT alone.
         self.runner = WorkerRunner(handle_sigint=False)
-        self.ui = UIWorker(menubar=self.menubar, store=store, memories=self.memories)
+        self.ui = UIWorker(menubar=self.menubar, store=store, memories=self.memories, registry=registry)
         voice = VoiceWorker(
             transport,
             screen_from_transport=False,
@@ -137,6 +139,12 @@ class App:
             registry=registry,
             on_state=self.ui.set_voice_state,
             on_show=self.ui.open_memories,
+            on_asked=self.ui.show_asked,
+            on_show_ask=self.ui.show_ask,
+            store=store,
+            on_answer=self.ui.show_answer,
+            on_recording=lambda on: self.ui.pause(not on),
+            greeting_cache=self.args.store / "greetings",
             idle_timeout_secs=None,
         )
         screen = ScreenWorker(store=store, source=source)
@@ -160,8 +168,10 @@ class App:
 
         @transport.event_handler("on_ready")
         async def on_ready(transport):
-            logger.info("audio is up; starting the conversation")
-            await voice.start_session("local")
+            recording = self.ui.settings().get("record_on_launch", True)
+            logger.info(f"audio is up; starting the conversation ({'recording' if recording else 'not recording'})")
+            self.ui.set_recording_state(recording)
+            await voice.start_session("local", recording=recording)
 
         try:
             await self.runner.run()
@@ -182,6 +192,13 @@ class _Delegate(NSObject):
         self.workers = None
         self._terminating = False
         return self
+
+    def applicationDidFinishLaunching_(self, notification):
+        # Set again once launched: an icon set before launch can be replaced
+        # by the default when the app finishes starting up.
+        icon = AppKit.NSImage.alloc().initWithContentsOfFile_(str(APP_ICON))
+        if icon is not None:
+            AppKit.NSApp.setApplicationIconImage_(icon)
 
     def applicationShouldTerminate_(self, sender):
         if self.workers is None or self.workers.done():
@@ -205,6 +222,47 @@ class _Delegate(NSObject):
         # Nothing to do: the timer exists so Python signal handlers get to run
         # while AppKit owns the main thread.
         pass
+
+
+def build_main_menu():
+    """The menu bar a regular app shows next to the Apple menu while it has a
+    window: the app menu, Edit (so the page's text fields get cut, copy, and
+    paste), and Window."""
+
+    def item(title, action, key, modifiers=None):
+        it = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+        if modifiers is not None:
+            it.setKeyEquivalentModifierMask_(modifiers)
+        return it
+
+    main = AppKit.NSMenu.alloc().init()
+
+    app_menu = AppKit.NSMenu.alloc().initWithTitle_("Peekaboo")
+    app_menu.addItem_(item("Hide Peekaboo", "hide:", "h"))
+    app_menu.addItem_(item("Hide Others", "hideOtherApplications:", "h", AppKit.NSEventModifierFlagCommand | AppKit.NSEventModifierFlagOption))
+    app_menu.addItem_(AppKit.NSMenuItem.separatorItem())
+    app_menu.addItem_(item("Quit Peekaboo", "terminate:", "q"))
+    holder = AppKit.NSMenuItem.alloc().init()
+    holder.setSubmenu_(app_menu)
+    main.addItem_(holder)
+
+    edit = AppKit.NSMenu.alloc().initWithTitle_("Edit")
+    for title, action, key in [
+        ("Undo", "undo:", "z"), ("Redo", "redo:", "Z"), (None, None, None),
+        ("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a"),
+    ]:
+        edit.addItem_(AppKit.NSMenuItem.separatorItem() if title is None else item(title, action, key))
+    holder = AppKit.NSMenuItem.alloc().init()
+    holder.setSubmenu_(edit)
+    main.addItem_(holder)
+
+    window = AppKit.NSMenu.alloc().initWithTitle_("Window")
+    window.addItem_(item("Close", "performClose:", "w"))
+    window.addItem_(item("Minimize", "performMiniaturize:", "m"))
+    holder = AppKit.NSMenuItem.alloc().init()
+    holder.setSubmenu_(window)
+    main.addItem_(holder)
+    return main
 
 
 def parse_args():
@@ -242,6 +300,16 @@ def main() -> int:
 
     ns_app = AppKit.NSApplication.sharedApplication()
     ns_app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)  # menu bar only
+    # Until there is a bundle: the cat as the icon in the Dock and Cmd-Tab
+    # (shown while a window is open), and our name where AppKit reads it.
+    icon = AppKit.NSImage.alloc().initWithContentsOfFile_(str(APP_ICON))
+    if icon is not None:
+        ns_app.setApplicationIconImage_(icon)
+    info = AppKit.NSBundle.mainBundle().infoDictionary()
+    if info is not None:
+        info["CFBundleName"] = "Peekaboo"
+
+    ns_app.setMainMenu_(build_main_menu())
 
     app = App(args, loop)
     app.memories = MemoriesWindow(store_root=args.store, loop=loop, on_call=app.on_page_call)
