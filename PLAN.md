@@ -48,15 +48,16 @@ only OS-specific code is the capture layer, so the door stays open.
 | `NSWorkspace` posts app launch and terminate notifications. | High | Registry |
 | `SCStream` with a single-window filter captures that window's own buffer, so occlusion and other Spaces do not matter. | High | Watch |
 | `SCContentFilter` can target an application rather than a window, so new windows of that app are included automatically. | High | Watch |
-| Every stream frame carries a status. `complete` means new content, `idle` means unchanged, `suspended` and `stopped` mean the target stopped producing frames. | High on names, medium on exact `suspended` semantics. Verify in M0. | Change gate, staleness |
-| `SCScreenshotManager` (macOS 14) captures a single still of a window or app without opening a stream. | High | Look |
-| Apps that track occlusion (Chrome, Electron, Safari) stop drawing when fully hidden or minimized. Terminals and most native apps keep drawing. | High | Staleness UX |
-| Minimized windows are unreliable. Behind other windows or on another Space is fine. | High | Staleness UX |
+| Every delivered stream frame is `complete`, changed or not; `idle` never arrives. Minimizing or hiding the target delivers one `suspended` frame with no picture, then nothing until it is back. `complete` says a picture was delivered, not that the app drew one. | Verified in M0 | Change gate, staleness |
+| `SCScreenshotManager` (macOS 14) captures a single still of a window or app without opening a stream, in 45–180 ms at 1080 wide. | Verified in M0 | Look |
+| Apps that track occlusion (Chrome, Electron, Safari) stop drawing when hidden, minimized, **or on another Space**: Chrome on another Space yields `complete` frames and stills whose content area is blank. Terminals and most native apps keep drawing. | Verified in M0 (Chrome, Ghostty) | Staleness UX |
+| Minimized and hidden windows go silent (`suspended`). Another Space is fine for apps that keep drawing and blank for those that don't. Same-Space occlusion not yet tested. | Verified in M0 | Staleness UX |
+| Using `SCContentFilter` from Python needs an `NSApplication`; without one the process asserts with `CGS_REQUIRE_INIT`. `NSApplication.sharedApplication()` is enough, no run loop required. | Verified in M0 | Everything |
 | Screen Recording permission is required for capture and for reading window titles. | High | Permissions |
 | Capturing without the system picker triggers Sequoia's periodic re-authorization prompt (weekly on 15.0, monthly on 15.1+). | Medium-high | Permissions |
 | Screen Recording and Microphone grants attach to the responsible process. Running from Terminal or iTerm means granting the terminal app, and child processes inherit. | High | Dev workflow |
 | Carbon `RegisterEventHotKey` provides a global hotkey without Accessibility or Input Monitoring permission. | Medium-high | Voice trigger (v2) |
-| `AVAudioEngine` with voice-processing I/O enabled on the input node gives OS-level echo cancellation, automatic gain, and noise suppression. | High | Native audio transport |
+| `AVAudioEngine` with voice-processing I/O enabled on the input node gives OS-level echo cancellation, automatic gain, and noise suppression: the bot's own speech goes from +23 dB above the quiet floor to 21 dB below it. Voice processing must be enabled after the output graph is built and before the engine starts, or the engine fails with `-10875`. The input node then reports nine identical channels; a mono tap format works. | Verified in M0 | Native audio transport |
 | Pipecat's bundled local audio transport is PyAudio/PortAudio: an extra C dependency, no echo cancellation, and mic permission attributed to the Python binary. | High | Why we build our own |
 | pyobjc ships bindings for AppKit, AVFoundation, ScreenCaptureKit, CoreMedia, and CoreVideo. | High | Everything |
 
@@ -153,7 +154,7 @@ ways, so cost stays bounded no matter how many apps are open.
 | **Registry** | Window list poll + NSWorkspace notifications | 1 Hz | Know every app and window. No pixels. |
 | **Look** | One `SCScreenshotManager` still of a window or app | On demand | Answer a question about a specific window right now. Image plus question in one model call. |
 | **Watch** | One `SCStream` per watched target, 1 fps, scaled to ≤1080 wide | While a watcher exists | Detect a condition. Only `complete` frames pass the change gate. |
-| **Record** | One low-rate stream (display or frontmost window, decide in M0) | 1 frame / 2–5 s, gated | Build the memory record. On by default, paused from the menu. |
+| **Record** | One low-rate stream of the display (decided in M0, see §9) | 1 frame / 2–5 s, gated | Build the memory record. On by default, paused from the menu. |
 
 **Change gate.** A frame reaches the vision model only if its stream status is
 `complete` and its perceptual hash differs from the last one sent for that
@@ -182,8 +183,10 @@ with password managers pre-populated.
 ### Workers (all on one runner, one in-memory bus)
 
 **`voice`** — `PipelineWorker`. macOS audio transport (below) → wake-phrase
-user-turn-start strategy → Deepgram STT → context aggregator → Anthropic LLM
-with tools → Cartesia TTS → transport output → assistant aggregator.
+user-turn-start strategy → Moonshine STT (local, ONNX on the CPU) → context
+aggregator → Anthropic LLM with tools → Kokoro TTS (local) → transport output
+→ assistant aggregator. Speech in both directions stays on the machine; the
+LLM is the only network service, and `ANTHROPIC_API_KEY` the only key.
 
 Tools exposed to the voice LLM:
 
@@ -322,7 +325,7 @@ The picker can be offered later as the gesture for creating a watcher.
 
 | # | Milestone | Deliverable | Demo | Exit criteria |
 |---|---|---|---|---|
-| M0 | **Spike** | `macos/` scripts only | Print the window list, screenshot one window by title, stream one window and log frame statuses. Record from the mic tap while playing audio and confirm the echo is gone. | Occluded and other-Space capture confirmed. `suspended` semantics confirmed. Stream callback → asyncio path works. Chrome-hidden staleness reproduced. AVAudioEngine tap works from pyobjc and voice-processing I/O cancels the bot's own output. Decision on Record mode source. |
+| M0 | **Spike** | `spikes/` scripts only | Print the window list, screenshot one window by title, stream one window and log frame statuses. Record from the mic tap while playing audio and confirm the echo is gone. | Occluded and other-Space capture confirmed. `suspended` semantics confirmed. Stream callback → asyncio path works. Chrome-hidden staleness reproduced. AVAudioEngine tap works from pyobjc and voice-processing I/O cancels the bot's own output. Decision on Record mode source. |
 | M1 | **Core, no UI** | macOS audio transport, runner with `voice` and `vision`, registry, `look`, SQLite store, CLI launcher | "What does the terminal say?" spoken and answered through the Mac's own mic and speakers. | Under two seconds from question end to first spoken word on a warm path. Bot output does not trigger its own VAD. Default device change mid-session survives. |
 | M2 | **Watchers** | `watch` / `unwatch`, per-target streams, change gate, hit and stale notifications | "Tell me when the build finishes", switch Space, hear it. | Hit spoken within ~2 s of the change. Stale warning when the target stops drawing. Watch survives the window being covered. |
 | M3 | **Memory** | Record mode, screenshots and thumbnails on disk, verbatim text extraction, FTS, `history` worker with progress narration and observation IDs | "What was the PR I looked at this morning?" | Correct answer from a morning of recording. Progress spoken while searching. Cost per hour of recording and disk per day measured and acceptable. |
@@ -378,6 +381,16 @@ Defaults taken in this plan. Change any of them before M1.
    region at a higher rate.
 9. **Quiet by default when another app has the mic.** A voice assistant
    that talks into your Zoom call is worse than one that stays silent.
+10. **Record mode streams the display, not the frontmost window.** Taken
+    from the M0 data. It shows what the user actually sees, so the blank
+    frames occlusion-aware apps produce off-Space cannot reach the memory
+    record; it is one stream that survives focus changes; and it keeps
+    side-by-side layouts. The registry tags each observation with the
+    frontmost app and window title. Capture at 1280 wide if 1080 makes
+    text too small.
+11. **Staleness is detected three ways, not one.** A `suspended` frame, no
+    frame for a few seconds, or a `complete` frame whose content area is
+    blank. Frame status alone is not a freshness signal.
 
 ---
 
@@ -431,3 +444,14 @@ runnable.
 | 4b. Split vision into screen and vision workers | **Done** | `screen` owns the source, gate, description model, store writes, and watchers, plus a `frame` job that hands over a picture as JPEG bytes. `vision` is a linear pipeline that answers a `look` with a fresh frame from `screen` and recent observations from the store. No shared pipeline, so no cross-talk, and each side can run its own model tier. |
 | 5. Moment policy and on-screen reminders | **Done** | `src/moments.py`: everything the assistant says unprompted is a moment (answer, meeting, watch hit, warning) and a policy delivers them by priority, only when nobody is talking (a conversation-state processor after the LLM tracks user, bot, and model activity), and holds unsolicited ones while a quiet rule holds, bannering instead and speaking once it lifts. Quiet rules are injected; none on Linux yet. Reminders come from the screen: the `screen` worker always watches for meeting and schedule notifications from any app, deduplicates them, and sends them to subscribers as moments with the join link read off the banner. The voice worker phrases them through the LLM and has `join_meeting` and `snooze_reminder` tools; under the eval transport links are logged, not opened. A calendar API was tried and removed: it is not what the product is about. Mic-in-use and screen-share quiet rules and real banners are Mac work. |
 | 6. Evals and tests | **Done** | `uv run evals/run.py --start-bot evals/*.yaml` starts a fresh bot per scenario, runs it, prints what the bot spoke, and flags errors in the bot log. Three text-mode scenarios: tool routing, a screen question with a fixture screenshot plus a past-tense question, and a meeting notification appearing on screen. Unit tests cover the store, change detection, link extraction, and the moment policy: `uv run --with pytest pytest tests/`. See `evals/README.md`. |
+
+macOS phase, started 2026-09-02 on macOS 26.6 with pyobjc 12.2. Python is
+pinned to 3.12 (`.python-version`) because `llvmlite`, pulled in by
+pipecat's `numba` dependency, has no 3.14 wheels. The pyobjc frameworks are
+dependencies marked `sys_platform == 'darwin'` so a Linux checkout still
+resolves.
+
+| Step | State | Notes |
+|---|---|---|
+| M0. Spike | **Done** | Four scripts under `spikes/` (not `macos/` as first written, to keep the name free for the real `src/macos/` package), findings in `spikes/README.md`. Every exit criterion met except same-Space occlusion, which needs a hand on the mouse: window list with off-Space windows and titles, 1 Hz diff at 30–50 ms a poll; stills of off-Space windows in 45–180 ms; an `SCStream` from pyobjc at a steady 1 fps hopping into asyncio; `suspended` semantics (one frame, then silence); Chrome-hidden staleness reproduced, and found to apply to other Spaces too, with blank `complete` frames; `AVAudioEngine` tap and player from pyobjc with voice processing cancelling the bot's own output by ~44 dB relative to off. Two surprises that shape M1: `idle` frames never arrive, so the change gate carries the whole unchanged-frame load, and voice processing has to be enabled after the graph is built. Record mode source decided: the display (§9.10). |
+| M1. Core, no UI | **In progress** | `uv run src/app.py`. `src/macos/`: `permissions` (TCC checks, prompts, and the exact Settings panes), `registry` (1 Hz window-list poll diffed by ID into open/close/retitle/shown/hidden events, exclusions for our own windows, helpers under 100 pt, and password managers; `frontmost()` from `NSWorkspace`; `NSWorkspace` launch/terminate notifications wait for the AppKit run loop in M4), `capture` (stills, streams, filters, buffer decoding, `blank_fraction` for the stale-frame check), `audio` (the `AVAudioEngine` transport: one engine for both directions, voice processing on, mono float32 tap at the hardware rate resampled to 16 kHz and sliced to 20 ms because the engine clamps tap buffers to 100 ms, int16 output at the pipeline rate paced to a 120 ms lead since the base output loop does not pace, player flushed on interruption, engine restarted on `AVAudioEngineConfigurationChangeNotification`). `src/sources/macos.py`: the display as one target via stills at 1280 wide, each frame tagged with the frontmost app and title, which now flow into `Observation.app`/`title`. Verified: registry, source, and transport each in a pipeline; a tone queued all at once plays paced and an interruption cuts it. Two changes of direction on 2026-09-02: pipecat is now the stable **1.8.1 from PyPI** (the editable sibling checkout is no longer used; the pyproject comment said to switch once the release was out), and STT and TTS are **local**, Moonshine and Kokoro, so `ANTHROPIC_API_KEY` is the only key and speech never leaves the machine. **The spoken round trip works** through the Mac's own mic and speakers, and the bot's speech never reaches the transcript: the OS canceller holds. Measured on "what does the terminal say?": Moonshine 0.4 s → voice LLM tool call 1.8 s → second LLM call for the filler 1.3 s → Kokoro 0.8 s, so the first spoken word lands at **~4.6 s**, against a 2 s target; the vision answer takes another 4.4 s and Kokoro needs 1–2 s per sentence on the CPU. Fixes so far: answers are spoken sentence by sentence (a whole paragraph took Kokoro longer than pipecat's 3 s silent-context timeout and was dropped), the Kokoro idle timeout is 15 s, and answers skip the moment policy's settle wait. Then the model tiers from §5 were set (voice router `claude-haiku-4-5`, vision `claude-opus-5` with adaptive thinking, screen describer `claude-haiku-4-5`) and the second LLM call replaced by a canned "One moment." with `run_llm=False`: **first spoken word 1.7–2.2 s after the user stops talking** (Moonshine 0.35, Haiku 1.0–1.3, Kokoro 0.4), meeting the exit criterion; the look answer is audible at 7–10 s (Opus 3.5–4.6 s to first token, then it writes several sentences, then Kokoro), so the vision prompt now asks for one or two sentences. Kokoro is the remaining tail at ~1 s per sentence on the CPU; CoreML gives no speedup and the int8 model is 2.5× slower, so a faster engine is the only lever there. Pending: a default-device change mid-session. |
