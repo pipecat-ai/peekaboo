@@ -156,6 +156,7 @@ class VoiceWorker(PipelineWorker):
         open_links: bool = True,
         speech: SpeechServices = "cloud",
         registry: Optional["WindowRegistry"] = None,
+        on_state: Optional[Callable[[str], None]] = None,
         quiet_checks: Optional[list[Callable[[], bool]]] = None,
         idle_timeout_secs: float | None = None,
         **kwargs,
@@ -169,7 +170,7 @@ class VoiceWorker(PipelineWorker):
         self._screen_bridge = (
             ScreenBridge(screen_worker_name=screen_worker) if screen_from_transport else None
         )
-        self._state = ConversationState()
+        self._state = ConversationState(on_change=on_state)
         self._moments = MomentPolicy(
             is_idle=lambda: self._state.idle,
             speak=self._speak_moment,
