@@ -8,9 +8,6 @@
 # arrives unprompted.
 name: meeting_notification
 turns:
-  - expect:
-      - event: llm_response
-
   - image: fixtures/notification.png
     expect:
       - event: llm_response

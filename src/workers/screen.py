@@ -6,6 +6,7 @@
 
 import asyncio
 import io
+import json
 import os
 import time
 from dataclasses import dataclass
@@ -60,9 +61,20 @@ class Watcher:
     target: str
     label: str
     query: str
+    wanted: str = ""
+    """What the user asked to watch, in their words; re-resolved on restore."""
+    enabled: bool = True
+    restored: bool = False
+    """Recreated at startup: its hits go to the subscriber, not to a watch job."""
 
     def describe(self) -> dict:
-        return {"id": self.id, "target": self.label, "condition": self.query}
+        return {"id": self.id, "target": self.label, "condition": self.query, "enabled": self.enabled}
+
+    def saved(self) -> dict:
+        return {"wanted": self.wanted, "condition": self.query, "enabled": self.enabled}
+
+
+WATCHERS_FILE = "watchers.json"
 
 # The same notification is not announced again within this window.
 NOTIFICATION_DEDUP_SECS = 10 * 60
@@ -168,7 +180,9 @@ class ScreenWorker(PipelineWorker):
       watcher is removed or its window closes.
     - ``unwatch``: ``{"id": int}`` or ``{"target": ...}``; nothing removes
       every watcher. Answers with the watchers removed.
-    - ``list_watchers``: answers with the active watchers.
+    - ``enable_watcher``: ``{"id": int, "enabled": bool}`` pauses or resumes a
+      watcher without forgetting it; id 0 is the built-in reminders watch.
+    - ``list_watchers``: answers with the watchers and the built-in's state.
     - ``subscribe``: stays open; on-screen reminders arrive on it as urgent
       ``{"moment": {...}}`` updates.
     - ``frame``: ``{"target": ..., "fresh": bool}`` answers with a picture as
@@ -194,6 +208,8 @@ class ScreenWorker(PipelineWorker):
         # reports, so ids are never reused.
         self._watchers: dict[int, Watcher] = {}
         self._next_watcher_id = NOTIFICATION_WATCH_ID + 1
+        self._notifications_enabled = True
+        self._restored = False
         # Who wants on-screen reminders, and which were announced recently.
         self._subscribers: list[str] = []
         self._announced: dict[str, float] = {}
@@ -285,27 +301,12 @@ class ScreenWorker(PipelineWorker):
         query = str(payload.get("query", ""))
         wanted = str(payload.get("target") or "")
 
-        resolved = self._frame_source.resolve(wanted)
-        logger.debug(f"{self}: watch {resolved.target} ({resolved.label}): {query}")
-
         try:
-            await self._frame_source.add_target(resolved.target)
+            watcher, resolved = await self._add_watcher(query, wanted, message.job_id)
         except Exception as e:  # noqa: BLE001 - reported to the requester
-            await self.send_job_response(
-                message.job_id, {"error": f"cannot watch {resolved.label}: {e}"}, status=JobStatus.ERROR
-            )
+            await self.send_job_response(message.job_id, {"error": str(e)}, status=JobStatus.ERROR)
             return
-
-        watcher = Watcher(
-            id=self._next_watcher_id,
-            job_id=message.job_id,
-            target=resolved.target,
-            label=resolved.label,
-            query=query,
-        )
-        self._next_watcher_id += 1
-        self._watchers[watcher.id] = watcher
-        self._image_processor.add_watch(WatchItem(id=watcher.id, query=query, target=resolved.target))
+        self._save()
 
         # Stays open. Hits and warnings arrive as urgent updates on this job.
         if wanted and not resolved.exact:
@@ -319,6 +320,65 @@ class ScreenWorker(PipelineWorker):
         # frame through the gate even if nothing has changed, and get one now.
         self._gate.reset(resolved.target)
         await self._frame_source.capture_now(resolved.target)
+
+    async def _add_watcher(self, query: str, wanted: str, job_id: str, *, enabled: bool = True, restored: bool = False):
+        resolved = self._frame_source.resolve(wanted)
+        logger.debug(f"{self}: watch {resolved.target} ({resolved.label}): {query}")
+        try:
+            await self._frame_source.add_target(resolved.target)
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"cannot watch {resolved.label}: {e}") from e
+        watcher = Watcher(
+            id=self._next_watcher_id,
+            job_id=job_id,
+            target=resolved.target,
+            label=resolved.label,
+            query=query,
+            wanted=wanted,
+            enabled=enabled,
+            restored=restored,
+        )
+        self._next_watcher_id += 1
+        self._watchers[watcher.id] = watcher
+        if enabled:
+            self._image_processor.add_watch(WatchItem(id=watcher.id, query=query, target=resolved.target))
+        return watcher, resolved
+
+    #
+    # Persistence: the intent behind each watcher, restored at the next launch
+    #
+
+    def _save(self):
+        path = self._store.root / WATCHERS_FILE
+        try:
+            path.write_text(json.dumps([w.saved() for w in self._watchers.values()], indent=2))
+        except OSError as e:
+            logger.warning(f"{self}: could not save watchers: {e}")
+
+    async def _restore(self, job_id: str):
+        """Recreate saved watchers, delivering their hits on ``job_id``."""
+        if self._restored:
+            return
+        self._restored = True
+        path = self._store.root / WATCHERS_FILE
+        try:
+            saved = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return
+        for entry in saved:
+            try:
+                await self._add_watcher(
+                    str(entry.get("condition", "")),
+                    str(entry.get("wanted", "")),
+                    job_id,
+                    enabled=bool(entry.get("enabled", True)),
+                    restored=True,
+                )
+            except Exception as e:  # noqa: BLE001 - the others still come back
+                logger.warning(f"{self}: could not restore watcher {entry}: {e}")
+        if saved:
+            logger.info(f"{self}: restored {len(saved)} watcher(s)")
+            self._gate.reset()
 
     @job(name="unwatch")
     async def _unwatch(self, message: BusJobRequestMessage):
@@ -338,13 +398,43 @@ class ScreenWorker(PipelineWorker):
         for watcher in selected:
             await self._remove_watcher(watcher, reason="unwatched")
             removed.append(watcher.describe())
+        self._save()
         await self.send_job_response(message.job_id, {"removed": removed})
 
     @job(name="list_watchers")
     async def _list_watchers(self, message: BusJobRequestMessage):
         await self.send_job_response(
-            message.job_id, {"watchers": [w.describe() for w in self._watchers.values()]}
+            message.job_id,
+            {
+                "watchers": [w.describe() for w in self._watchers.values()],
+                "builtin": {"enabled": self._notifications_enabled},
+            },
         )
+
+    @job(name="enable_watcher")
+    async def _enable_watcher(self, message: BusJobRequestMessage):
+        payload = message.payload or {}
+        watcher_id = int(payload.get("id", -1))
+        enabled = bool(payload.get("enabled", True))
+        if watcher_id == NOTIFICATION_WATCH_ID:
+            self._notifications_enabled = enabled
+            if enabled:
+                self._image_processor.add_watch(NOTIFICATION_WATCH)
+            else:
+                self._image_processor.remove_watch(NOTIFICATION_WATCH_ID)
+        else:
+            watcher = self._watchers.get(watcher_id)
+            if watcher is None:
+                await self.send_job_response(message.job_id, {"error": "no such watcher"}, status=JobStatus.ERROR)
+                return
+            watcher.enabled = enabled
+            if enabled:
+                self._image_processor.add_watch(WatchItem(id=watcher.id, query=watcher.query, target=watcher.target))
+            else:
+                self._image_processor.remove_watch(watcher.id)
+        logger.debug(f"{self}: watcher {watcher_id} {'enabled' if enabled else 'disabled'}")
+        self._save()
+        await self.send_job_response(message.job_id, {"id": watcher_id, "enabled": enabled})
 
     async def _remove_watcher(self, watcher: Watcher, *, reason: str):
         self._watchers.pop(watcher.id, None)
@@ -355,15 +445,20 @@ class ScreenWorker(PipelineWorker):
             w.target == watcher.target for w in self._watchers.values()
         ):
             await self._frame_source.remove_target(watcher.target)
-        await self.send_job_response(watcher.job_id, {"reason": reason}, status=JobStatus.CANCELLED)
+        # A restored watcher shares the subscriber's job, which stays open.
+        if not watcher.restored:
+            await self.send_job_response(watcher.job_id, {"reason": reason}, status=JobStatus.CANCELLED)
 
     def _watchers_on(self, target: str) -> list[Watcher]:
-        return [w for w in self._watchers.values() if w.target == target]
+        return [w for w in self._watchers.values() if w.target == target and w.enabled]
 
     @job(name="subscribe")
     async def _subscribe(self, message: BusJobRequestMessage):
         logger.debug(f"{self}: {message.source} subscribed to on-screen reminders")
         self._subscribers.append(message.job_id)
+        # The first subscriber also receives the hits of watchers saved from
+        # the last run, since their own jobs did not survive it.
+        await self._restore(message.job_id)
 
     @job(name="frame")
     async def _frame(self, message: BusJobRequestMessage):
@@ -476,7 +571,8 @@ class ScreenWorker(PipelineWorker):
                 continue
             watcher = self._watchers.get(item_id)
             if watcher and text:
-                await self.send_job_update(watcher.job_id, {"say": text}, urgent=True)
+                key = "hit" if watcher.restored else "say"
+                await self.send_job_update(watcher.job_id, {key: text}, urgent=True)
 
     #
     # Target health

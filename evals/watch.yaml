@@ -7,9 +7,6 @@
 # LLM phrases.
 name: watch
 turns:
-  - expect:
-      - event: llm_response
-
   - user: "Tell me when the terminal says finished."
     image: fixtures/terminal_running.png
     expect:

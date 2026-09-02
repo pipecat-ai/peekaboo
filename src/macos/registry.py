@@ -28,6 +28,9 @@ from loguru import logger
 
 POLL_INTERVAL_SECS = 1.0
 
+# What our own process is called in lists, until there is a bundle.
+OWN_APP_NAME = "Peekaboo"
+
 # Windows smaller than this in points are helpers (cursor, autofill, text
 # input popups run 64x64), not content.
 MIN_WINDOW_SIZE = 100
@@ -97,6 +100,8 @@ class Window:
     """x, y, width, height in points."""
     on_screen: bool
     layer: int = 0
+    tabs: tuple[str, ...] = ()
+    """Titles of sibling windows collapsed into this one by :func:`collapse_tabs`."""
 
     @property
     def size(self) -> tuple[float, float]:
@@ -149,13 +154,22 @@ def content_windows(
     own_pid: int,
     min_size: int = MIN_WINDOW_SIZE,
     excluded: frozenset[str] = EXCLUDED_BUNDLES,
+    regular_pids: Optional[set[int]] = None,
 ) -> list[Window]:
-    """The windows that count: normal layer, big enough, not ours, not denied."""
+    """The windows that count: normal layer, big enough, not denied, and, when
+    ``regular_pids`` is given, belonging to a regular app. Our own windows
+    count too: the memories window is a regular window like any other.
+
+    Menu bar agents (Creative Cloud, Alfred, autofill helpers, Peekaboo
+    itself) keep windows around that only appear when clicked; macOS marks
+    those apps with an accessory or prohibited activation policy, and their
+    windows are not what anyone means by "the window".
+    """
     return [
         w
         for w in windows
         if w.layer == 0
-        and w.pid != own_pid
+        and (regular_pids is None or w.pid in regular_pids)
         and w.bundle_id not in excluded
         and w.frame[2] >= min_size
         and w.frame[3] >= min_size
@@ -189,6 +203,36 @@ def normalize_query(query: str) -> str:
         if q.endswith(suffix):
             q = q[: -len(suffix)]
     return q.strip()
+
+
+def collapse_tabs(windows: list[Window]) -> list[Window]:
+    """Fold native tabs into one window per tab group, for presentation.
+
+    macOS tabs are separate windows in a tab group, and ScreenCaptureKit lists
+    every one; nothing public says which are tabs, but they share their
+    app and their exact frame, and at most one is on screen. Same-app windows
+    with an identical frame are folded into the on-screen one (or the first),
+    which carries the others' titles in ``tabs``. Events and captures keep the
+    individual windows; this is for lists people read.
+    """
+    groups: dict[tuple, list[Window]] = {}
+    order: list[tuple] = []
+    for w in windows:
+        key = (w.pid, tuple(round(v) for v in w.frame))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(w)
+    out = []
+    for key in order:
+        group = groups[key]
+        if len(group) == 1:
+            out.append(group[0])
+            continue
+        lead = next((w for w in group if w.on_screen), group[0])
+        others = tuple(w.title for w in group if w is not lead and w.title.strip())
+        out.append(replace(lead, tabs=others))
+    return out
 
 
 def find_window(windows: list[Window], query: str) -> Optional[Window]:
@@ -305,7 +349,11 @@ class WindowRegistry:
             return None, None
         pid = int(running.processIdentifier())
         app = self._apps.get(pid)
-        if app is None:
+        if pid == self._own_pid:
+            # Unbundled, the process is called "Python"; the record should
+            # say who was really in front.
+            app = App(name=OWN_APP_NAME, bundle_id="", pid=pid)
+        elif app is None:
             app = App(
                 name=str(running.localizedName() or ""),
                 bundle_id=str(running.bundleIdentifier() or ""),
@@ -322,7 +370,7 @@ class WindowRegistry:
         self._refreshed = asyncio.Event()
         await self.refresh()
         self._task = asyncio.create_task(self._run(), name="window-registry")
-        logger.info(f"registry: {len(self._windows)} windows across {len(self._apps)} apps")
+        logger.info(f"registry: {len(self._windows)} windows across {len(self._apps)} apps (own pid {self._own_pid})")
 
     async def stop(self):
         if self._task:
@@ -335,27 +383,39 @@ class WindowRegistry:
 
     async def refresh(self) -> list[RegistryEvent]:
         """Take a snapshot now, fire events for what changed, return them."""
+        import AppKit
+
         from macos.capture import shareable_content
 
         content = await shareable_content()
         self._displays = list(content.displays())
+
+        # Regular apps only: the ones with a Dock presence.
+        regular = {
+            int(a.processIdentifier())
+            for a in AppKit.NSWorkspace.sharedWorkspace().runningApplications()
+            if a.activationPolicy() == AppKit.NSApplicationActivationPolicyRegular
+        }
 
         sc_apps = {}
         apps = {}
         for a in content.applications():
             pid = int(a.processID())
             sc_apps[pid] = a
-            apps[pid] = App(name=str(a.applicationName() or ""), bundle_id=str(a.bundleIdentifier() or ""), pid=pid)
+            # Unbundled, our own process is called "Python".
+            name = OWN_APP_NAME if pid == self._own_pid else str(a.applicationName() or "")
+            apps[pid] = App(name=name, bundle_id=str(a.bundleIdentifier() or ""), pid=pid)
 
         raw: list[Window] = []
         sc_windows = {}
         for w in content.windows():
             app = w.owningApplication()
             frame = w.frame()
+            pid = int(app.processID()) if app else 0
             window = Window(
                 id=int(w.windowID()),
                 title=str(w.title() or ""),
-                app=str(app.applicationName() or "") if app else "",
+                app=(OWN_APP_NAME if pid == self._own_pid else str(app.applicationName() or "")) if app else "",
                 bundle_id=str(app.bundleIdentifier() or "") if app else "",
                 pid=int(app.processID()) if app else 0,
                 frame=(frame.origin.x, frame.origin.y, frame.size.width, frame.size.height),
@@ -365,14 +425,16 @@ class WindowRegistry:
             raw.append(window)
             sc_windows[window.id] = w
 
-        kept = content_windows(raw, own_pid=self._own_pid, min_size=self._min_size)
+        kept = content_windows(raw, own_pid=self._own_pid, min_size=self._min_size, regular_pids=regular)
         new = {w.id: w for w in kept}
         # The first snapshot is the baseline, not forty "opened" events.
         events = diff(self._windows, new) if self._primed else []
         self._primed = True
 
         self._windows = new
-        self._apps = {pid: a for pid, a in apps.items() if a.bundle_id not in EXCLUDED_BUNDLES}
+        self._apps = {
+            pid: a for pid, a in apps.items() if a.bundle_id not in EXCLUDED_BUNDLES and pid in regular
+        }
         self._sc_windows = {wid: sc_windows[wid] for wid in new}
         self._sc_apps = sc_apps
 

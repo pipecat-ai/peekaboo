@@ -8,9 +8,6 @@
 # for a line that quotes the terminal output.
 name: screen_question
 turns:
-  - expect:
-      - event: llm_response
-
   - user: "What does the terminal window say?"
     image: fixtures/terminal.png
     expect:

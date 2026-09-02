@@ -100,7 +100,9 @@ class MenuBar:
 
         self._menu = AppKit.NSMenu.alloc().init()
         self._menu.setAutoenablesItems_(False)
-        self._pause_item = self._add(self._menu, "Pause watching", "pause:")
+        self._add(self._menu, "Open Peekaboo", "search:", key="o").setEnabled_(on_search is not None)
+        self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
+        self._pause_item = self._add(self._menu, "Pause recording", "pause:")
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
         self._watching_item = self._add(self._menu, "Watching", None)
         self._watching_menu = AppKit.NSMenu.alloc().init()
@@ -108,8 +110,6 @@ class MenuBar:
         self._recent_item = self._add(self._menu, "Recent", None)
         self._recent_menu = AppKit.NSMenu.alloc().init()
         self._recent_item.setSubmenu_(self._recent_menu)
-        self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
-        self._add(self._menu, "Search Memories…", "search:", key="f").setEnabled_(on_search is not None)
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
         self._add(self._menu, "Quit Peekaboo", "quit:", key="q")
         self._item.setMenu_(self._menu)
@@ -138,6 +138,16 @@ class MenuBar:
             shown = "paused" if self._paused and state == "idle" else state
             self._item.button().setToolTip_(STATE_TOOLTIP.get(shown, "Peekaboo"))
             self._item.button().setAppearsDisabled_(shown == "paused")
+
+        AppHelper.callAfter(go)
+
+    def set_paused(self, paused: bool):
+        """Reflect a pause that came from elsewhere (the memories window)."""
+
+        def go():
+            self._paused = paused
+            self._pause_item.setTitle_("Start recording" if paused else "Pause recording")
+            self.set_state(self._state)
 
         AppHelper.callAfter(go)
 
@@ -182,7 +192,7 @@ class MenuBar:
 
     def _toggle_pause(self):
         self._paused = not self._paused
-        self._pause_item.setTitle_("Resume watching" if self._paused else "Pause watching")
+        self._pause_item.setTitle_("Start recording" if self._paused else "Pause recording")
         self.set_state(self._state)
         self._on_pause(self._paused)
 

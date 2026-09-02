@@ -12,7 +12,7 @@ from macos.registry import (  # noqa: E402
     find_window,
     with_title,
 )
-from macos.registry import App  # noqa: E402
+from macos.registry import App, collapse_tabs  # noqa: E402
 
 
 def window(id, title, app="Ghostty", bundle="com.mitchellh.ghostty", pid=100, size=(800, 600), on_screen=True, layer=0):
@@ -35,7 +35,10 @@ def test_content_windows_drops_helpers_ours_and_denied():
     vault = window(4, "1Password", app="1Password", bundle="com.1password.1password")
     real = window(5, "tmux")
     kept = content_windows([ours, tiny, menu, vault, real], own_pid=42)
-    assert kept == [real]
+    assert kept == [ours, real]  # our own memories window is a regular window
+    # With the regular-app set given, an agent's window (pid 7) is out too.
+    agent = window(6, "Creative Cloud Desktop", app="Creative Cloud", bundle="com.adobe.acc", pid=7)
+    assert content_windows([real, agent], own_pid=42, regular_pids={100}) == [real]
 
 
 def test_diff_reports_open_close_retitle_and_visibility():
@@ -101,3 +104,16 @@ def test_watchlist_for_binds_items_to_targets():
 
     assert watchlist_for([chrome, terminal, everywhere], "window:5") == [everywhere, terminal]
     assert watchlist_for([chrome, terminal, everywhere], "screen") == [everywhere]
+
+
+def test_collapse_tabs_folds_same_frame_siblings_into_the_visible_one():
+    tab1 = window(1, "~", on_screen=False, size=(1728, 1084))
+    front = window(2, "tmux", on_screen=True, size=(1728, 1084))
+    tab2 = window(3, "aleix@mac:~", on_screen=False, size=(1728, 1084))
+    other = window(4, "notes", size=(800, 600))
+    chrome = window(5, "Docs", app="Google Chrome", bundle="com.google.Chrome", pid=200, on_screen=False, size=(1728, 1084))
+
+    folded = collapse_tabs([tab1, front, tab2, other, chrome])
+    assert [w.id for w in folded] == [2, 4, 5]
+    assert folded[0].tabs == ("~", "aleix@mac:~")
+    assert folded[2].tabs == ()  # a different app with the same frame is not a tab

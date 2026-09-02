@@ -33,8 +33,9 @@ from PyObjCTools import AppHelper
 
 PAGE = Path(__file__).parent / "assets" / "memories.html"
 WINDOW_TITLE = "Peekaboo"
-WINDOW_SIZE = (1180, 760)
-MIN_SIZE = (820, 520)
+WINDOW_SIZE = (1120, 720)
+MIN_SIZE = (900, 560)
+# Must match the page's sidebar width and the space it leaves for the lights.
 
 
 class _Handler(NSObject):
@@ -78,6 +79,7 @@ class MemoriesWindow:
         self._handler = _Handler.alloc().initWithWindow_(self)
         self._ready = False
         self._queued: list[dict] = []
+        self._theme = "system"
 
     #
     # From any thread
@@ -92,6 +94,12 @@ class MemoriesWindow:
             try:
                 if self._window is None:
                     self._build()
+                # A menu bar app is kept out of the Dock and Cmd-Tab. While a
+                # window is open we are a regular app, so the window can be
+                # switched to like any other; back to accessory on close.
+                AppKit.NSApp.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
+                # The Dock tile exists from this moment; give it our icon.
+                AppKit.NSApp.setApplicationIconImage_(AppKit.NSApp.applicationIconImage())
                 self._window.makeKeyAndOrderFront_(None)
                 AppKit.NSApp.activateIgnoringOtherApps_(True)
             except Exception as e:  # noqa: BLE001
@@ -101,6 +109,22 @@ class MemoriesWindow:
                 self.send("show", {"ids": list(ids)})
 
         AppHelper.callAfter(go)
+
+    def set_theme(self, theme: str):
+        """System, light, or dark: the window's appearance follows the page so
+        the title bar and traffic lights match. Any thread."""
+
+        def go():
+            self._theme = theme
+            if self._window is not None:
+                self._apply_theme()
+
+        AppHelper.callAfter(go)
+
+    def _apply_theme(self):
+        names = {"light": AppKit.NSAppearanceNameAqua, "dark": AppKit.NSAppearanceNameDarkAqua}
+        name = names.get(self._theme)
+        self._window.setAppearance_(AppKit.NSAppearance.appearanceNamed_(name) if name else None)
 
     def send(self, event: str, payload: Any = None):
         """Push an event to the page, once it is ready."""
@@ -165,25 +189,39 @@ class MemoriesWindow:
             NSURL.fileURLWithPath_(str(page)), NSURL.fileURLWithPath_isDirectory_(str(self._store_root), True)
         )
 
+        # The design puts the traffic lights inside the sidebar: a transparent
+        # title bar with the page drawn under it.
         mask = (
             AppKit.NSWindowStyleMaskTitled
             | AppKit.NSWindowStyleMaskClosable
             | AppKit.NSWindowStyleMaskResizable
             | AppKit.NSWindowStyleMaskMiniaturizable
+            | AppKit.NSWindowStyleMaskFullSizeContentView
         )
         self._window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             AppKit.NSMakeRect(0, 0, w, h), mask, AppKit.NSBackingStoreBuffered, False
         )
         self._window.setTitle_(WINDOW_TITLE)
+        self._window.setTitlebarAppearsTransparent_(True)
+        self._window.setTitleVisibility_(AppKit.NSWindowTitleHidden)
         self._window.setMinSize_(AppKit.NSMakeSize(*MIN_SIZE))
         self._window.setContentView_(self._webview)
         self._window.setReleasedWhenClosed_(False)
         self._window.setDelegate_(self._handler)
         self._window.center()
+        self._apply_theme()
         logger.debug("memories window built")
 
     def _on_message(self, data: dict):
         method = str(data.get("method", ""))
+        if method == "drag":
+            # The web view takes every mouse event, so with a transparent
+            # title bar nothing would move the window. The page reports a
+            # mouse-down on its chrome and the pending event starts the drag.
+            event = AppKit.NSApp.currentEvent()
+            if event is not None and self._window is not None:
+                self._window.performWindowDragWithEvent_(event)
+            return
         if method == "ready":
             self._ready = True
             queued, self._queued = self._queued, []
@@ -209,3 +247,4 @@ class MemoriesWindow:
         self._queued = []
         self._window = None
         self._webview = None
+        AppKit.NSApp.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
