@@ -1,0 +1,77 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from macos.registry import (  # noqa: E402
+    EventKind,
+    Window,
+    content_windows,
+    diff,
+    find_app,
+    find_window,
+    with_title,
+)
+from macos.registry import App  # noqa: E402
+
+
+def window(id, title, app="Ghostty", bundle="com.mitchellh.ghostty", pid=100, size=(800, 600), on_screen=True, layer=0):
+    return Window(
+        id=id,
+        title=title,
+        app=app,
+        bundle_id=bundle,
+        pid=pid,
+        frame=(0.0, 0.0, float(size[0]), float(size[1])),
+        on_screen=on_screen,
+        layer=layer,
+    )
+
+
+def test_content_windows_drops_helpers_ours_and_denied():
+    ours = window(1, "peekaboo", pid=42)
+    tiny = window(2, "", size=(20, 20))
+    menu = window(3, "", layer=25)
+    vault = window(4, "1Password", app="1Password", bundle="com.1password.1password")
+    real = window(5, "tmux")
+    kept = content_windows([ours, tiny, menu, vault, real], own_pid=42)
+    assert kept == [real]
+
+
+def test_diff_reports_open_close_retitle_and_visibility():
+    a = window(1, "~")
+    b = window(2, "build", on_screen=False)
+    old = {1: a, 2: b}
+    new = {1: with_title(a, "make test"), 3: window(3, "Discord")}
+    events = diff(old, new)
+    kinds = {(e.kind, e.window.id) for e in events}
+    assert kinds == {(EventKind.RETITLED, 1), (EventKind.OPENED, 3), (EventKind.CLOSED, 2)}
+    retitle = next(e for e in events if e.kind == EventKind.RETITLED)
+    assert retitle.previous.title == "~" and retitle.window.title == "make test"
+
+    shown = diff({2: b}, {2: Window(**{**b.__dict__, "on_screen": True})})
+    assert [e.kind for e in shown] == [EventKind.SHOWN]
+
+
+def test_find_window_prefers_exact_app_then_title_then_biggest_on_screen():
+    chrome_small = window(1, "Terminal docs", app="Google Chrome", bundle="com.google.Chrome", size=(300, 300))
+    terminal = window(2, "~", app="Terminal", bundle="com.apple.Terminal")
+    ghostty_off = window(3, "tmux", size=(1700, 1000), on_screen=False)
+    ghostty_on = window(4, "tmux", size=(1200, 800))
+    windows = [chrome_small, terminal, ghostty_off, ghostty_on]
+
+    # Exact app name beats a title that merely contains the word.
+    assert find_window(windows, "terminal") is terminal
+    # A title substring; on screen beats bigger but off screen.
+    assert find_window(windows, "tmux") is ghostty_on
+    # App substring as a last resort.
+    assert find_window(windows, "chrome") is chrome_small
+    assert find_window(windows, "nothing here") is None
+    assert find_window(windows, "  ") is None
+
+
+def test_find_app_exact_before_substring():
+    apps = [App("Google Chrome", "com.google.Chrome", 1), App("Chrome Helper", "com.google.helper", 2)]
+    assert find_app(apps, "chrome").name == "Google Chrome"
+    assert find_app(apps, "helper").name == "Chrome Helper"
+    assert find_app(apps, "zoom") is None

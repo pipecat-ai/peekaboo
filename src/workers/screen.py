@@ -343,6 +343,8 @@ class ScreenWorker(PipelineWorker):
             content=str(data.get("content", "")),
             verbatim_text=verbatim,
             frame_hash=sent.key if sent else None,
+            app=sent.app if sent else None,
+            title=sent.title if sent else None,
         )
 
         if sent and sent.key:

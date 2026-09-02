@@ -37,11 +37,15 @@ class ScreenFrame(SystemFrame):
     """Identity of the frame for storage: same key, same picture."""
     changed: bool = True
     """Whether the frame differs from the last one analyzed for this target."""
+    app: Optional[str] = None
+    """The frontmost app when the frame was taken, when the source knows."""
+    title: Optional[str] = None
+    """Its frontmost window's title."""
 
     def __str__(self):
         return (
             f"{self.name}(target: {self.target} size: {self.image.size} "
-            f"key: {self.key} changed: {self.changed})"
+            f"key: {self.key} changed: {self.changed} app: {self.app})"
         )
 
 

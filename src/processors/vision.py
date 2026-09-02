@@ -35,6 +35,8 @@ class SentFrame:
     timestamp: int
     image: Image.Image
     key: str
+    app: Optional[str] = None
+    title: Optional[str] = None
 
 
 class VisionQueryProcessor(FrameProcessor):
@@ -173,7 +175,12 @@ class VisionImageProcessor(FrameProcessor):
         )
 
         self._last_sent = SentFrame(
-            target=frame.target, timestamp=frame.timestamp, image=frame.image, key=frame.key or ""
+            target=frame.target,
+            timestamp=frame.timestamp,
+            image=frame.image,
+            key=frame.key or "",
+            app=frame.app,
+            title=frame.title,
         )
         self._busy_since = time.monotonic()
 

@@ -264,6 +264,14 @@ class VoiceWorker(PipelineWorker):
         if self._moments_task is None:
             self._moments_task = self.create_task(self._moments.run(), name="moments")
 
+    async def cleanup(self):
+        # The moment policy runs for the life of the session; take it down
+        # with the worker so shutdown leaves nothing dangling.
+        if self._moments_task:
+            task, self._moments_task = self._moments_task, None
+            await self.cancel_task(task)
+        await super().cleanup()
+
     async def say(self, text: str):
         """Speak text directly, bypassing the LLM."""
         logger.info(f"{self}: saying: {text}")
