@@ -81,6 +81,7 @@ async def main(args) -> int:
         screen_from_transport=False,
         open_links=True,
         speech="local" if args.local_speech else "cloud",
+        registry=registry,
         idle_timeout_secs=None,
     )
     screen = ScreenWorker(store=store, source=source)

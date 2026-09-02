@@ -32,6 +32,44 @@ POLL_INTERVAL_SECS = 1.0
 # input popups run 64x64), not content.
 MIN_WINDOW_SIZE = 100
 
+# What people call apps, mapped to bundle ids, so "the terminal" finds
+# whichever terminal is running. Matched after exact names and titles.
+TARGET_ALIASES: dict[str, frozenset[str]] = {
+    "terminal": frozenset(
+        {
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "com.mitchellh.ghostty",
+            "net.kovidgoyal.kitty",
+            "com.github.wez.wezterm",
+            "org.alacritty",
+            "dev.warp.Warp-Stable",
+        }
+    ),
+    "browser": frozenset(
+        {
+            "com.google.Chrome",
+            "com.apple.Safari",
+            "org.mozilla.firefox",
+            "company.thebrowser.Browser",
+            "com.brave.Browser",
+            "com.microsoft.edgemac",
+        }
+    ),
+    "editor": frozenset(
+        {
+            "com.microsoft.VSCode",
+            "com.todesktop.230313mzl4w4u92",
+            "dev.zed.Zed",
+            "com.sublimetext.4",
+            "com.jetbrains.pycharm",
+            "com.jetbrains.intellij",
+        }
+    ),
+}
+TARGET_ALIASES["shell"] = TARGET_ALIASES["terminal"]
+TARGET_ALIASES["code"] = TARGET_ALIASES["editor"]
+
 # Never captured, never listed. Password managers ship in the denylist.
 EXCLUDED_BUNDLES = frozenset(
     {
@@ -141,15 +179,29 @@ def diff(old: dict[int, Window], new: dict[int, Window]) -> list[RegistryEvent]:
     return events
 
 
+def normalize_query(query: str) -> str:
+    """"The Chrome window" -> "chrome": what is left once the filler is gone."""
+    q = " ".join(query.strip().lower().split())
+    for prefix in ("the ", "my "):
+        if q.startswith(prefix):
+            q = q[len(prefix) :]
+    for suffix in (" window", " app", " application"):
+        if q.endswith(suffix):
+            q = q[: -len(suffix)]
+    return q.strip()
+
+
 def find_window(windows: list[Window], query: str) -> Optional[Window]:
     """The window best matching ``query`` in its title or app name.
 
-    Exact app-name matches win, then title substrings, then app substrings;
-    within a tier the biggest on-screen window wins.
+    Exact app-name matches win, then title substrings, then app substrings,
+    then a generic alias ("terminal", "browser"); within a tier the biggest
+    on-screen window wins.
     """
-    q = query.strip().lower()
+    q = normalize_query(query)
     if not q:
         return None
+    alias = TARGET_ALIASES.get(q, frozenset())
 
     def rank(w: Window) -> Optional[tuple]:
         title, app = w.title.lower(), w.app.lower()
@@ -159,6 +211,8 @@ def find_window(windows: list[Window], query: str) -> Optional[Window]:
             tier = 1
         elif q in app or q in w.bundle_id.lower():
             tier = 2
+        elif w.bundle_id in alias:
+            tier = 3
         else:
             return None
         return (tier, not w.on_screen, -(w.frame[2] * w.frame[3]))
@@ -171,7 +225,7 @@ def find_window(windows: list[Window], query: str) -> Optional[Window]:
 
 
 def find_app(apps: list[App], query: str) -> Optional[App]:
-    q = query.strip().lower()
+    q = normalize_query(query)
     if not q:
         return None
     for app in apps:
@@ -179,6 +233,10 @@ def find_app(apps: list[App], query: str) -> Optional[App]:
             return app
     for app in apps:
         if q in app.name.lower() or q in app.bundle_id.lower():
+            return app
+    alias = TARGET_ALIASES.get(q, frozenset())
+    for app in apps:
+        if app.bundle_id in alias:
             return app
     return None
 

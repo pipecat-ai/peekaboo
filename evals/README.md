@@ -15,9 +15,10 @@ instead, and flags tracebacks or errors in it. Logs land in `evals/logs/`.
 
 | Scenario | What it checks |
 |---|---|
-| `tool_routing.yaml` | A screen question calls the vision tool, a "tell me when" call sets the watchlist flag, a general question calls nothing. |
+| `tool_routing.yaml` | A screen question calls `look` with the window the user named as the target, a "tell me when" calls `watch`, a general question calls nothing. |
 | `screen_question.yaml` | With a fixture screenshot registered, a look is answered from the picture, the store gets the observation, and a past-tense question goes to the history worker. |
 | `meeting.yaml` | A meeting notification appears on screen; the reminder is spoken unprompted and saying yes calls `join_meeting`. |
+| `watch.yaml` | "Tell me when the terminal says finished" calls `watch`; a frame with the build still running says nothing, a frame that says FINISHED is announced (in the spoken list), and "stop watching" calls `unwatch`. |
 
 To run against a bot you started yourself, drop `--start-bot`:
 

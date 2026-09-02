@@ -70,8 +70,34 @@ def test_find_window_prefers_exact_app_then_title_then_biggest_on_screen():
     assert find_window(windows, "  ") is None
 
 
+def test_aliases_and_filler_words():
+    ghostty = window(1, "tmux", app="Ghostty", bundle="com.mitchellh.ghostty")
+    chrome = window(2, "Docs", app="Google Chrome", bundle="com.google.Chrome")
+    windows = [ghostty, chrome]
+
+    assert find_window(windows, "the terminal") is ghostty
+    assert find_window(windows, "my terminal window") is ghostty
+    assert find_window(windows, "the browser") is chrome
+    assert find_window(windows, "the Chrome window") is chrome
+    # A real name still beats an alias.
+    terminal = window(3, "~", app="Terminal", bundle="com.apple.Terminal")
+    assert find_window(windows + [terminal], "terminal") is terminal
+    assert find_app([App("Ghostty", "com.mitchellh.ghostty", 1)], "the terminal app").name == "Ghostty"
+
+
 def test_find_app_exact_before_substring():
     apps = [App("Google Chrome", "com.google.Chrome", 1), App("Chrome Helper", "com.google.helper", 2)]
     assert find_app(apps, "chrome").name == "Google Chrome"
     assert find_app(apps, "helper").name == "Chrome Helper"
     assert find_app(apps, "zoom") is None
+
+
+def test_watchlist_for_binds_items_to_targets():
+    from processors.vision import WatchItem, watchlist_for
+
+    everywhere = WatchItem(0, "a meeting banner")
+    terminal = WatchItem(1, "the build finishes", target="window:5")
+    chrome = WatchItem(2, "a new message", target="window:9")
+
+    assert watchlist_for([chrome, terminal, everywhere], "window:5") == [everywhere, terminal]
+    assert watchlist_for([chrome, terminal, everywhere], "screen") == [everywhere]

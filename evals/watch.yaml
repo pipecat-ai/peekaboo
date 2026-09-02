@@ -1,0 +1,40 @@
+# A watcher end to end, in text mode. The user asks to be told when the
+# terminal says finished; the screen worker adds a watcher bound to the shared
+# screen (the eval transport has no windows, so every target resolves to it).
+# A frame where the build is still running must not trigger it; a frame that
+# says FINISHED must. Hits bypass the LLM, so they show up in the runner's
+# "spoken" list, not as events. "Stop watching" calls unwatch, whose result the
+# LLM phrases.
+name: watch
+turns:
+  - expect:
+      - event: llm_response
+
+  - user: "Tell me when the terminal says finished."
+    image: fixtures/terminal_running.png
+    expect:
+      - event: function_call
+        calls:
+          - name: watch
+
+  # The build is still running: nothing should be said. Hold the turn open
+  # long enough for a capture and an analysis.
+  - expect:
+      - event: function_call
+        absent: true
+        within_ms: 12000
+
+  # The build finishes. The next changed frame is analyzed, the watcher hits,
+  # and the hit is spoken (look for it in the spoken list). Still no tool call.
+  - image: fixtures/terminal_finished.png
+    expect:
+      - event: function_call
+        absent: true
+        within_ms: 15000
+
+  - user: "Stop watching."
+    expect:
+      - event: function_call
+        calls:
+          - name: unwatch
+      - event: llm_response

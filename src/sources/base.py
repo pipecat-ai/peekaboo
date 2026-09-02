@@ -6,6 +6,7 @@
 
 import asyncio
 from abc import abstractmethod
+from dataclasses import dataclass
 from typing import Optional
 
 from loguru import logger
@@ -14,18 +15,42 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from processors.frames import CaptureRequestFrame
 
-# How often the source asks for a frame of each target while capturing.
+# How often the source asks for a frame of each polled target while capturing.
 CAPTURE_INTERVAL_SECS = 1.0
+
+
+@dataclass(frozen=True)
+class Resolved:
+    """What a spoken target ("the terminal", "Chrome") turned out to mean."""
+
+    target: str
+    """The source's target id."""
+    label: str
+    """How to refer to it when speaking: "the Ghostty window", "the screen"."""
+    exact: bool
+    """False when nothing matched and the source fell back to a default."""
 
 
 class BaseFrameSource(FrameProcessor):
     """Head of the vision pipeline: where screen frames come from.
 
     A source owns a set of targets and emits a :class:`ScreenFrame` for each
-    capture. While capturing, it asks for a frame of every target on a fixed
-    cadence; a look asks for one right now with :meth:`capture_now`. What a
-    capture means is the subclass's business: asking the transport that owns
-    the screen share, or reading a window stream on macOS.
+    capture. While capturing, it asks for a frame of every polled target on a
+    fixed cadence; a look asks for one right now with :meth:`capture_now`.
+    Targets that stream on their own (a watched window on macOS) push frames
+    as they arrive and are skipped by the cadence.
+
+    What a target is, and what a capture means, is the subclass's business:
+    asking the transport that owns the screen share, or reading the display
+    and windows from the OS.
+
+    Events, all with the target id first:
+
+    - ``on_target_stale(target, reason)``: frames stopped, or stopped
+      carrying content. ``reason`` is a spoken-form explanation.
+    - ``on_target_fresh(target)``: content is back.
+    - ``on_target_lost(target, reason)``: the target is gone for good (the
+      window closed) and has been removed.
     """
 
     def __init__(self, *, targets: set[str], **kwargs):
@@ -33,14 +58,38 @@ class BaseFrameSource(FrameProcessor):
         self._targets = set(targets)
         self._timer: Optional[asyncio.Task] = None
         self._interval = CAPTURE_INTERVAL_SECS
+        self._register_event_handler("on_target_stale")
+        self._register_event_handler("on_target_fresh")
+        self._register_event_handler("on_target_lost")
 
     @property
     def targets(self) -> set[str]:
         return set(self._targets)
 
     @property
+    def default_target(self) -> str:
+        return next(iter(sorted(self._targets)))
+
+    @property
     def capturing(self) -> bool:
         return self._timer is not None
+
+    def resolve(self, text: Optional[str]) -> Resolved:
+        """Turn what the user said into a target. The default source has one
+        target and everything means it."""
+        target = self.default_target
+        return Resolved(target=target, label=self.label(target), exact=not (text or "").strip())
+
+    def label(self, target: str) -> str:
+        return "the screen" if target == self.default_target else target
+
+    async def add_target(self, target: str):
+        """Start producing frames of a target that :meth:`resolve` returned."""
+        self._targets.add(target)
+
+    async def remove_target(self, target: str):
+        if target != self.default_target:
+            self._targets.discard(target)
 
     async def start(self, interval: float = CAPTURE_INTERVAL_SECS):
         """Start asking for frames on a cadence."""
@@ -82,4 +131,5 @@ class BaseFrameSource(FrameProcessor):
 
     @abstractmethod
     async def capture(self, target: str):
-        """Request one frame of ``target``. The frame arrives later, as a push."""
+        """Request one frame of ``target`` on the cadence. The frame arrives
+        later, as a push. Streaming targets may ignore this."""

@@ -50,16 +50,6 @@ class ScreenFrame(SystemFrame):
 
 
 @dataclass
-class WatchFrame(SystemFrame):
-    """Something to watch for on screen, added to the image branch's list."""
-
-    query: str
-
-    def __str__(self):
-        return f"{self.name}(query: {self.query})"
-
-
-@dataclass
 class QuestionFrame(SystemFrame):
     """A question about the screen, with the picture and recent context to answer it from."""
 

@@ -7,7 +7,7 @@
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from loguru import logger
 from PIL import Image
@@ -20,11 +20,26 @@ from pipecat.frames.frames import (
 from pipecat.processors.aggregators.llm_context import LLMContext, LLMContextMessage
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from processors.frames import QuestionFrame, ScreenFrame, VisionWatchlistFrame, WatchFrame
+from processors.frames import QuestionFrame, ScreenFrame, VisionWatchlistFrame
 
 # An analysis that takes longer than this is assumed lost, so the image
 # branch accepts frames again.
 ANALYSIS_TIMEOUT_SECS = 45.0
+
+
+@dataclass(frozen=True)
+class WatchItem:
+    """Something to watch for, on one target or on every frame."""
+
+    id: int
+    query: str
+    target: Optional[str] = None
+    """The frame target this applies to; None means every target."""
+
+
+def watchlist_for(items: Iterable[WatchItem], target: str) -> list[WatchItem]:
+    """The items a frame of ``target`` is checked against, in id order."""
+    return sorted((i for i in items if i.target is None or i.target == target), key=lambda i: i.id)
 
 
 @dataclass
@@ -89,16 +104,26 @@ class VisionImageProcessor(FrameProcessor):
     :meth:`set_idle` when an analysis finishes.
     """
 
-    def __init__(self, *, system_instruction: str, watchlist: Optional[List[str]] = None):
+    def __init__(self, *, system_instruction: str, watchlist: Optional[List[WatchItem]] = None):
         super().__init__()
         self._system_instruction = system_instruction
-        self._watchlist_queries: List[str] = list(watchlist or [])
+        self._watchlist: Dict[int, WatchItem] = {item.id: item for item in watchlist or []}
         self._watchlist_messages: List[LLMContextMessage] = []
         self._last_sent: Optional[SentFrame] = None
         self._busy_since: Optional[float] = None
 
         # Fired with the analysis dict of a frame that matched watchlist items.
         self._register_event_handler("on_watchlist_hit")
+
+    def add_watch(self, item: WatchItem):
+        self._watchlist[item.id] = item
+
+    def remove_watch(self, item_id: int):
+        self._watchlist.pop(item_id, None)
+
+    @property
+    def watchlist(self) -> List[WatchItem]:
+        return list(self._watchlist.values())
 
     def take_last_sent(self) -> Optional[SentFrame]:
         """The frame most recently sent to the model, once."""
@@ -122,9 +147,7 @@ class VisionImageProcessor(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, WatchFrame):
-            self._watchlist_queries.append(frame.query)
-        elif isinstance(frame, ScreenFrame):
+        if isinstance(frame, ScreenFrame):
             await self._handle_screen_frame(frame)
         elif isinstance(frame, VisionWatchlistFrame):
             await self._handle_vision_watchlist_frame(frame)
@@ -154,7 +177,10 @@ class VisionImageProcessor(FrameProcessor):
             logger.trace(f"{self}: busy, skipping {frame}")
             return
 
-        watchlist_queries = "\n".join(f"{i}. {w}" for (i, w) in enumerate(self._watchlist_queries))
+        # Only the items bound to this frame's target, plus the ones that
+        # apply everywhere, numbered by their stable ids.
+        items = watchlist_for(self._watchlist.values(), frame.target)
+        watchlist_queries = "\n".join(f"{item.id}. {item.query}" for item in items)
         system_instruction = self._system_instruction + watchlist_queries
 
         system_message = {
@@ -231,7 +257,7 @@ class VisionImageContextProcessor(FrameProcessor):
 
     async def _maybe_send_watchlist_item(self, item: Mapping[str, Any]):
         timestamp = item["timestamp"]
-        watchlist = item["watchlist"]
+        watchlist = item.get("watchlist") or []
 
         # Push watchlist so it can be sent to the voice agent.
         send_watchlist = False

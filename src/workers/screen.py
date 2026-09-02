@@ -8,6 +8,7 @@ import asyncio
 import io
 import os
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 from loguru import logger
@@ -23,10 +24,10 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.services.anthropic.llm import AnthropicLLMService
 
 from links import find_join_url
-from processors.frames import ScreenFrame, WatchFrame
+from processors.frames import ScreenFrame
 from processors.gate import ChangeGate
 from processors.screen_bridge import SCREEN_BRIDGE
-from processors.vision import VisionImageContextProcessor, VisionImageProcessor
+from processors.vision import VisionImageContextProcessor, VisionImageProcessor, WatchItem
 from sources.base import CAPTURE_INTERVAL_SECS, BaseFrameSource
 from sources.transport import TransportScreenSource
 from store.models import Observation
@@ -36,13 +37,32 @@ from workers.names import SCREEN_WORKER
 # How long a `frame` job waits for the source to deliver.
 FRAME_TIMEOUT_SECS = 8.0
 
-# Always on the watchlist, as item 0: the reminders the OS and other apps put
-# on screen. A hit becomes a meeting moment for whoever subscribed.
-NOTIFICATION_WATCH = (
-    "A notification, banner, alert, or popup about a meeting, call, or scheduled "
-    "event that is starting soon or now, from a calendar app, Zoom, Meet, Teams, "
-    "Slack, or similar. Report its title, its time, and any visible join link."
+# Always on the watchlist, as item 0 on every target: the reminders the OS and
+# other apps put on screen. A hit becomes a meeting moment for whoever
+# subscribed.
+NOTIFICATION_WATCH_ID = 0
+NOTIFICATION_WATCH = WatchItem(
+    id=NOTIFICATION_WATCH_ID,
+    query=(
+        "A notification, banner, alert, or popup about a meeting, call, or scheduled "
+        "event that is starting soon or now, from a calendar app, Zoom, Meet, Teams, "
+        "Slack, or similar. Report its title, its time, and any visible join link."
+    ),
 )
+
+
+@dataclass
+class Watcher:
+    """One thing someone asked to be told about, on one target."""
+
+    id: int
+    job_id: str
+    target: str
+    label: str
+    query: str
+
+    def describe(self) -> dict:
+        return {"id": self.id, "target": self.label, "condition": self.query}
 
 # The same notification is not announced again within this window.
 NOTIFICATION_DEDUP_SECS = 10 * 60
@@ -74,9 +94,9 @@ FIELDS
 3. "timestamp"
    The Unix timestamp (in seconds) when the image was received.
 
-4. "watchlist" (optional)
-   Include this field only when "type" is "watchlist".
-   Its value must be a list of watchlist item numbers detected in the image.
+4. "watchlist"
+   The list of watchlist item numbers detected in the image. Empty when
+   "type" is "description"; never empty when "type" is "watchlist".
 
 5. "verbatim_text"
    A list of short strings copied exactly as they appear on screen: window
@@ -92,21 +112,28 @@ WATCHLIST RULES
 WATCHLIST ITEMS:
 """
 
+# Strict on purpose: the watchlist ids route hits to watchers, so they are
+# required (empty for a plain description) and integers. The schema validator
+# accepts no length caps, so the token limit below is what bounds a runaway.
 IMAGE_OUTPUT_FORMAT = {
     "type": "json_schema",
     "schema": {
         "type": "object",
         "properties": {
-            "type": {"type": "string"},
+            "type": {"type": "string", "enum": ["description", "watchlist"]},
             "content": {"type": "string"},
-            "watchlist": {"type": "array"},
+            "watchlist": {"type": "array", "items": {"type": "integer"}},
             "timestamp": {"type": "integer"},
             "verbatim_text": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["type", "content", "timestamp", "verbatim_text"],
+        "required": ["type", "content", "watchlist", "timestamp", "verbatim_text"],
         "additionalProperties": False,
     },
 }
+
+# A description is a paragraph and a dozen strings; anything longer is the
+# model looping, and the sooner it is cut off the sooner the frame is retried.
+SCREEN_MAX_TOKENS = 1024
 
 
 class ScreenWorker(PipelineWorker):
@@ -127,11 +154,21 @@ class ScreenWorker(PipelineWorker):
     instead of reading a calendar. A hit goes to every subscriber as a
     meeting moment, with the join link when one is visible.
 
+    Targets are what the user said ("the terminal", "Chrome", or nothing for
+    the whole screen); the source resolves them. A watch on a window starts
+    that window's stream, and its frames are checked only against the
+    watchers bound to it.
+
     Jobs:
 
     - ``capture``: ``{"action": "start" | "stop"}`` the capture cadence.
-    - ``watch``: ``{"query": ...}`` adds a watchlist item. Stays open; every
-      hit is a ``{"say": text}`` update.
+    - ``watch``: ``{"query": ..., "target": ...}`` adds a watcher. Stays open;
+      every hit is a ``{"say": text}`` update, and the target going stale,
+      fresh, or away is a ``{"warning": text}`` update. Closed when the
+      watcher is removed or its window closes.
+    - ``unwatch``: ``{"id": int}`` or ``{"target": ...}``; nothing removes
+      every watcher. Answers with the watchers removed.
+    - ``list_watchers``: answers with the active watchers.
     - ``subscribe``: stays open; on-screen reminders arrive on it as urgent
       ``{"moment": {...}}`` updates.
     - ``frame``: ``{"target": ..., "fresh": bool}`` answers with a picture as
@@ -153,9 +190,10 @@ class ScreenWorker(PipelineWorker):
         )
         self._context_processor = VisionImageContextProcessor()
 
-        # Watch job ids, in watchlist order after the built-in notification
-        # item: index N is watchlist item N + 1.
-        self._watch_jobs: list[str] = []
+        # Watchers by id; the id is also the watchlist item number the model
+        # reports, so ids are never reused.
+        self._watchers: dict[int, Watcher] = {}
+        self._next_watcher_id = NOTIFICATION_WATCH_ID + 1
         # Who wants on-screen reminders, and which were announced recently.
         self._subscribers: list[str] = []
         self._announced: dict[str, float] = {}
@@ -190,6 +228,9 @@ class ScreenWorker(PipelineWorker):
         self._context_processor.add_event_handler(
             "on_analysis_finished", self._on_analysis_finished
         )
+        self._frame_source.add_event_handler("on_target_stale", self._on_target_stale)
+        self._frame_source.add_event_handler("on_target_fresh", self._on_target_fresh)
+        self._frame_source.add_event_handler("on_target_lost", self._on_target_lost)
 
     def _build_pipeline(self) -> Pipeline:
         llm = AnthropicLLMService(
@@ -199,13 +240,10 @@ class ScreenWorker(PipelineWorker):
             retry_on_timeout=True,
             settings=AnthropicLLMService.Settings(
                 model=SCREEN_MODEL,
+                max_tokens=SCREEN_MAX_TOKENS,
                 extra={
-                    "extra_headers": {
-                        "anthropic-beta": "structured-outputs-2025-11-13",
-                    },
-                    "extra_body": {
-                        "output_format": IMAGE_OUTPUT_FORMAT,
-                    },
+                    # Structured outputs are GA: output_config.format, no beta header.
+                    "extra_body": {"output_config": {"format": IMAGE_OUTPUT_FORMAT}},
                 },
             ),
         )
@@ -243,19 +281,84 @@ class ScreenWorker(PipelineWorker):
 
     @job(name="watch")
     async def _watch(self, message: BusJobRequestMessage):
-        query = str((message.payload or {}).get("query", ""))
+        payload = message.payload or {}
+        query = str(payload.get("query", ""))
+        wanted = str(payload.get("target") or "")
 
-        logger.debug(f"{self}: watch: {query}")
+        resolved = self._frame_source.resolve(wanted)
+        logger.debug(f"{self}: watch {resolved.target} ({resolved.label}): {query}")
 
-        # Stays open. Hits arrive as urgent updates on this job.
-        self._watch_jobs.append(message.job_id)
-        await self.queue_frame(WatchFrame(query=query))
+        try:
+            await self._frame_source.add_target(resolved.target)
+        except Exception as e:  # noqa: BLE001 - reported to the requester
+            await self.send_job_response(
+                message.job_id, {"error": f"cannot watch {resolved.label}: {e}"}, status=JobStatus.ERROR
+            )
+            return
+
+        watcher = Watcher(
+            id=self._next_watcher_id,
+            job_id=message.job_id,
+            target=resolved.target,
+            label=resolved.label,
+            query=query,
+        )
+        self._next_watcher_id += 1
+        self._watchers[watcher.id] = watcher
+        self._image_processor.add_watch(WatchItem(id=watcher.id, query=query, target=resolved.target))
+
+        # Stays open. Hits and warnings arrive as urgent updates on this job.
+        if wanted and not resolved.exact:
+            await self.send_job_update(
+                message.job_id,
+                {"say": f"I couldn't find {wanted}, so I'm watching the whole screen for that."},
+                urgent=True,
+            )
 
         # What the user is waiting for may already be on screen: let the next
         # frame through the gate even if nothing has changed, and get one now.
-        self._gate.reset()
-        for target in self._frame_source.targets:
-            await self._frame_source.capture_now(target)
+        self._gate.reset(resolved.target)
+        await self._frame_source.capture_now(resolved.target)
+
+    @job(name="unwatch")
+    async def _unwatch(self, message: BusJobRequestMessage):
+        payload = message.payload or {}
+        wanted_id = payload.get("id")
+        wanted = str(payload.get("target") or "")
+
+        if wanted_id is not None:
+            selected = [w for w in self._watchers.values() if w.id == int(wanted_id)]
+        elif wanted:
+            resolved = self._frame_source.resolve(wanted)
+            selected = [w for w in self._watchers.values() if w.target == resolved.target]
+        else:
+            selected = list(self._watchers.values())
+
+        removed = []
+        for watcher in selected:
+            await self._remove_watcher(watcher, reason="unwatched")
+            removed.append(watcher.describe())
+        await self.send_job_response(message.job_id, {"removed": removed})
+
+    @job(name="list_watchers")
+    async def _list_watchers(self, message: BusJobRequestMessage):
+        await self.send_job_response(
+            message.job_id, {"watchers": [w.describe() for w in self._watchers.values()]}
+        )
+
+    async def _remove_watcher(self, watcher: Watcher, *, reason: str):
+        self._watchers.pop(watcher.id, None)
+        self._image_processor.remove_watch(watcher.id)
+        logger.debug(f"{self}: watcher {watcher.id} on {watcher.label} removed: {reason}")
+        # Nobody else watches this target: stop its stream.
+        if watcher.target != self._frame_source.default_target and not any(
+            w.target == watcher.target for w in self._watchers.values()
+        ):
+            await self._frame_source.remove_target(watcher.target)
+        await self.send_job_response(watcher.job_id, {"reason": reason}, status=JobStatus.CANCELLED)
+
+    def _watchers_on(self, target: str) -> list[Watcher]:
+        return [w for w in self._watchers.values() if w.target == target]
 
     @job(name="subscribe")
     async def _subscribe(self, message: BusJobRequestMessage):
@@ -265,7 +368,8 @@ class ScreenWorker(PipelineWorker):
     @job(name="frame")
     async def _frame(self, message: BusJobRequestMessage):
         payload = message.payload or {}
-        target = str(payload.get("target") or next(iter(self._frame_source.targets), "screen"))
+        resolved = self._frame_source.resolve(str(payload.get("target") or ""))
+        target = resolved.target
         fresh = bool(payload.get("fresh", True))
 
         frame = None if fresh else self._latest.get(target)
@@ -290,6 +394,8 @@ class ScreenWorker(PipelineWorker):
             message.job_id,
             {
                 "target": target,
+                "label": resolved.label,
+                "exact": resolved.exact,
                 "timestamp": frame.timestamp,
                 "key": frame.key,
                 "format": "image/jpeg",
@@ -362,15 +468,42 @@ class ScreenWorker(PipelineWorker):
         text = str(content.get("content", ""))
         for item in content.get("watchlist") or []:
             try:
-                index = int(item)
+                item_id = int(item)
             except (TypeError, ValueError):
                 continue
-            if index == 0:
+            if item_id == NOTIFICATION_WATCH_ID:
                 await self._on_notification(text, content.get("verbatim_text") or [])
                 continue
-            index -= 1
-            if 0 <= index < len(self._watch_jobs) and text:
-                await self.send_job_update(self._watch_jobs[index], {"say": text}, urgent=True)
+            watcher = self._watchers.get(item_id)
+            if watcher and text:
+                await self.send_job_update(watcher.job_id, {"say": text}, urgent=True)
+
+    #
+    # Target health
+    #
+
+    async def _on_target_stale(self, source, target: str, reason: str):
+        for watcher in self._watchers_on(target):
+            await self.send_job_update(
+                watcher.job_id,
+                {"warning": f"I can't see {watcher.label} any more: {reason}."},
+                urgent=True,
+            )
+
+    async def _on_target_fresh(self, source, target: str):
+        for watcher in self._watchers_on(target):
+            await self.send_job_update(
+                watcher.job_id, {"warning": f"I can see {watcher.label} again."}, urgent=True
+            )
+
+    async def _on_target_lost(self, source, target: str, reason: str):
+        for watcher in self._watchers_on(target):
+            await self.send_job_update(
+                watcher.job_id,
+                {"warning": f"I've stopped watching {watcher.label}: {reason}."},
+                urgent=True,
+            )
+            await self._remove_watcher(watcher, reason=reason)
 
     async def _on_notification(self, text: str, verbatim: list):
         if not text or not self._subscribers:

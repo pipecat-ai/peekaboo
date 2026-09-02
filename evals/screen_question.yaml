@@ -16,8 +16,7 @@ turns:
     expect:
       - event: function_call
         calls:
-          - name: get_vision_help
-            args: { watchlist: false }
+          - name: look
 
   # Hold the session open so the vision answer has time to arrive.
   - expect:
@@ -31,8 +30,7 @@ turns:
     expect:
       - event: function_call
         calls:
-          - name: get_vision_help
-            args: { watchlist: false }
+          - name: look
 
   - expect:
       - event: function_call

@@ -87,7 +87,9 @@ class VisionWorker(PipelineWorker):
 
     Jobs:
 
-    - ``look``: ``{"query": ...}``, answered once with ``{"answer": text}``.
+    - ``look``: ``{"query": ..., "target": ...}``, answered once with
+      ``{"answer": text}``. ``target`` is what the user called the window or
+      app, or empty for the whole screen.
       Text the model writes on its way to the answer is sent as
       ``{"say": text}`` updates.
     """
@@ -172,9 +174,11 @@ class VisionWorker(PipelineWorker):
 
     @job(name="look")
     async def _look(self, message: BusJobRequestMessage):
-        query = str((message.payload or {}).get("query", ""))
+        payload = message.payload or {}
+        query = str(payload.get("query", ""))
+        target = str(payload.get("target") or "")
 
-        logger.debug(f"{self}: look: {query}")
+        logger.debug(f"{self}: look: {query} (target: {target or 'screen'})")
 
         # A new question supersedes one still being answered, unless that one
         # is waiting on the history worker, which will complete it later.
@@ -184,12 +188,19 @@ class VisionWorker(PipelineWorker):
 
         self._current_look = message.job_id
 
-        picture = await self._fresh_frame()
+        picture = await self._fresh_frame(target)
         recent = await self._store.recent(limit=CONTEXT_OBSERVATIONS)
 
         # Superseded while waiting for the picture: drop this question.
         if self._current_look != message.job_id:
             return
+
+        if picture:
+            label = picture.get("label", "the screen")
+            if target and not picture.get("exact", True):
+                query = f"(No window matching '{target}' was found; the picture is of the whole screen.) {query}"
+            elif label != "the screen":
+                query = f"(The picture is of {label}.) {query}"
 
         await self.queue_frame(
             QuestionFrame(
@@ -227,12 +238,14 @@ class VisionWorker(PipelineWorker):
             urgent=True,
         )
 
-    async def _fresh_frame(self) -> Optional[dict]:
-        """A picture of the screen right now, from the screen worker."""
+    async def _fresh_frame(self, target: str = "") -> Optional[dict]:
+        """A picture of the target right now, from the screen worker."""
         try:
             async with self.job(
                 self._screen_worker,
-                params=JobParams(name="frame", payload={"fresh": True}, timeout=FRAME_TIMEOUT_SECS),
+                params=JobParams(
+                    name="frame", payload={"fresh": True, "target": target}, timeout=FRAME_TIMEOUT_SECS
+                ),
             ) as t:
                 pass
         except JobError as e:
