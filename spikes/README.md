@@ -1,0 +1,66 @@
+# M0 spikes
+
+Throwaway scripts that prove the macOS facts the plan relies on before anything
+in `src/` depends on them. Run from a terminal that has Screen Recording and
+Microphone granted (System Settings → Privacy & Security); the grant attaches to
+the terminal app and its children. Everything here is a candidate for
+`src/macos/` in M1; nothing in `src/` imports from `spikes/`.
+
+```
+uv run spikes/windows.py                         # displays, apps, windows
+uv run spikes/windows.py --poll                  # open/close/retitle events, 1 Hz
+uv run spikes/shot.py --title "Terminal"         # one still of a window
+uv run spikes/shot.py --app "Google Chrome"      # one still of an app's windows
+uv run spikes/stream.py --title "Terminal" --seconds 20 --save
+uv run spikes/stream.py --display --fps 0.5
+uv run spikes/audio.py                           # echo test, voice processing on
+uv run spikes/audio.py --no-vp                   # same, off, for comparison
+```
+
+Output lands in `spikes/out/` (ignored).
+
+## Findings, 2026-09-02, macOS 26.6.2, pyobjc 12.2
+
+### Capture
+
+| Question | Answer |
+|---|---|
+| Does `SCShareableContent` list everything? | Yes: every display, app, and window, including other Spaces and off-screen windows, with titles. 40 windows here, 39 on other Spaces. A poll of the list costs 30–50 ms. |
+| Do stills of windows on another Space work? | Mechanically yes, in 45–180 ms at 1080 wide, via `SCScreenshotManager`. Whether the *content* is there depends on the app (below). |
+| Does an `SCStream` from pyobjc work? | Yes. An `NSObject` subclass declaring the `SCStreamOutput` and `SCStreamDelegate` protocols receives sample buffers on ScreenCaptureKit's queue (a nil `sampleHandlerQueue` is fine). Copying the pixels and `call_soon_threadsafe` into asyncio works; frames arrive at exactly the configured 1 fps. |
+| What do frame statuses look like? | **Every delivered frame is `complete`, changed or not.** `idle` was never observed, so the free "unchanged" signal the plan hoped for does not exist here; the change gate's signature does that work, and it separates a ticking clock (0.3–0.8 % moved) from a static window (0.00–0.01 %) cleanly. |
+| What does `suspended` mean? | Minimizing the window or hiding the app (⌘H) delivers exactly **one `suspended` frame with no picture, then nothing at all** until the window is back. Staleness detection is therefore "a `suspended` frame arrived, or no frame in N seconds", not a per-frame flag. |
+| Do occlusion-aware apps stop drawing? | **Yes, and worse than expected.** A Chrome window on another Space, with a JavaScript clock ticking, produces `complete` frames whose web-contents area is **blank**, from both the stream and `SCScreenshotManager`. The same window on the current Space updates every second. Terminals (Ghostty) render fine wherever they are. So `complete` means "here is a picture", not "the app drew one"; the product needs a blank-content check on top of the status. |
+| Does an app-level filter work? | Yes, `initWithDisplay:includingApplications:exceptingWindows:` streams every window of the app. Frames are display-sized. |
+| Anything needed to use ScreenCaptureKit from Python? | Building an `SCContentFilter` asserts with `CGS_REQUIRE_INIT` unless the process has an `NSApplication`. `NSApplication.sharedApplication()` at import is enough; no run loop is needed for stills or streams. |
+| Pixel format | Ask for `kCVPixelFormatType_32BGRA`; the `CGImage` and `CVPixelBuffer` both decode with PIL `raw`/`BGRA` and `bytesPerRow` as the stride. `CVPixelBufferGetBaseAddress` returns an `objc.varlist`; `as_buffer(bytes_per_row * height)` gives the bytes. |
+
+### Audio
+
+| Question | Answer |
+|---|---|
+| Does `AVAudioEngine` work from pyobjc? | Yes. Tap on the input node, `AVAudioPlayerNode` on the same engine, WAV out. |
+| Does voice processing cancel the echo? | **Yes.** Speech played through the speakers while recording: with voice processing off the mic sits **+23.5 dB** above its quiet baseline during playback; with it on, **−21 dB below** it (the canceller plus noise suppression). About 44 dB between the two. |
+| Ordering constraint | **Enable voice processing after the output graph is built and before the engine starts.** Enabled first, the output node reports a 0 Hz / 0-channel format and `startAndReturnError:` fails with `-10875`. `inputNode` → attach and connect the player → `setVoiceProcessingEnabled:` → install tap → start. Enabling it on the input node enables it on the output node too. |
+| Input format with voice processing | 48 kHz, **9 identical channels**. A mono tap format at the engine rate is accepted and is what the transport should use. |
+| Reading a tap buffer | `floatChannelData()` is a tuple of `objc.varlist`; `data[c].as_buffer(frameLength)` yields `frameLength * 4` bytes of float32. |
+| Permission | Microphone is a TCC grant to the terminal, checked with `AVCaptureDevice.authorizationStatusForMediaType:`; `requestAccessForMediaType:completionHandler:` prompts. |
+
+### Not tested here
+
+- A window covered by another window on the *same* Space. The terminal is
+  fullscreen on its own Space, so there was nothing to cover it with. Cover a
+  window and run `stream.py --title ...` to check.
+- Default device change mid-session (AirPods). M1 exit criterion.
+- Electron apps other than Chrome. One Discord still on another Space had
+  content, but it was not retested with a changing view.
+
+## Decision: Record mode source
+
+**A display stream**, not a frontmost-window stream. It shows what the user
+actually sees, so the blank-window problem cannot reach the memory record; it
+is one stream that never has to be torn down on focus changes; and it keeps
+side-by-side layouts. The registry tags each observation with the frontmost
+app and window title. Cost is a display-sized frame, so text is smaller than
+in a window-scoped frame; capture at 1280 wide (the store's width) rather
+than 1080 if legibility suffers.

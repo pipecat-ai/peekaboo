@@ -6,6 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pipecat-ai[anthropic,cartesia,daily,deepgram,runner,silero,webrtc]>=1.8.1,<2",
+    # The macOS capture and audio layers. Marked so a Linux checkout still
+    # resolves; nothing outside src/macos/ and spikes/ imports these.
+    "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-CoreMedia>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-ScreenCaptureKit>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-AVFoundation>=11.0; sys_platform == 'darwin'",
 ]
 
 [tool.uv.sources]
