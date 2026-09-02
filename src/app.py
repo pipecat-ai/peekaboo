@@ -40,6 +40,7 @@ from PyObjCTools import AppHelper
 
 from macos import permissions
 from macos.audio import MacAudioTransport, MacAudioTransportParams
+from macos.memories import MemoriesWindow
 from macos.menubar import MenuBar
 from macos.registry import WindowRegistry
 from sources.macos import ScreenCaptureSource
@@ -64,6 +65,7 @@ class App:
         self.args = args
         self.loop = loop
         self.menubar: Optional[MenuBar] = None
+        self.memories: Optional[MemoriesWindow] = None
         self.runner: Optional[WorkerRunner] = None
         self.ui: Optional[UIWorker] = None
 
@@ -79,6 +81,19 @@ class App:
 
     def on_quit(self):
         AppKit.NSApp.terminate_(None)
+
+    def on_search(self):
+        if self.memories:
+            self.memories.open()
+
+    def on_open_recent(self, observation_id: int):
+        if self.memories:
+            self.memories.open([observation_id])
+
+    async def on_page_call(self, method: str, params: dict):
+        if self.ui is None:
+            raise RuntimeError("not ready yet")
+        return await self.ui.call(method, params)
 
     # --- asyncio side
 
@@ -113,7 +128,7 @@ class App:
         # voice pipeline carries audio only. Signals are AppKit's business on
         # the main thread, so the runner leaves SIGINT alone.
         self.runner = WorkerRunner(handle_sigint=False)
-        self.ui = UIWorker(menubar=self.menubar, store=store)
+        self.ui = UIWorker(menubar=self.menubar, store=store, memories=self.memories)
         voice = VoiceWorker(
             transport,
             screen_from_transport=False,
@@ -121,12 +136,27 @@ class App:
             speech="local" if self.args.local_speech else "cloud",
             registry=registry,
             on_state=self.ui.set_voice_state,
+            on_show=self.ui.open_memories,
             idle_timeout_secs=None,
         )
         screen = ScreenWorker(store=store, source=source)
         vision = VisionWorker(store=store)
         history = HistoryWorker(store=store)
         await self.runner.add_workers(history, screen, vision, voice, self.ui)
+        # Development hooks: open the page, poke it, picture it.
+        dev = self.args.open_memories or self.args.snapshot_memories or self.args.memories_eval
+        if dev and self.memories:
+            self.memories.open()
+
+            async def dev_later():
+                await asyncio.sleep(4)
+                if self.args.memories_eval:
+                    self.memories.evaluate(self.args.memories_eval)
+                    await asyncio.sleep(20)
+                if self.args.snapshot_memories:
+                    self.memories.snapshot(self.args.snapshot_memories)
+
+            asyncio.get_running_loop().create_task(dev_later())
 
         @transport.event_handler("on_ready")
         async def on_ready(transport):
@@ -186,6 +216,9 @@ def parse_args():
         action="store_true",
         help="Moonshine and Kokoro on the machine instead of Deepgram and Cartesia",
     )
+    parser.add_argument("--open-memories", action="store_true", help="open the memories window on launch")
+    parser.add_argument("--snapshot-memories", type=Path, help="write a PNG of the memories page after launch")
+    parser.add_argument("--memories-eval", metavar="JS", help="run JavaScript in the memories page after launch")
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser.parse_args()
 
@@ -211,7 +244,14 @@ def main() -> int:
     ns_app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)  # menu bar only
 
     app = App(args, loop)
-    app.menubar = MenuBar(on_pause=app.on_pause, on_quit=app.on_quit, on_unwatch=app.on_unwatch)
+    app.memories = MemoriesWindow(store_root=args.store, loop=loop, on_call=app.on_page_call)
+    app.menubar = MenuBar(
+        on_pause=app.on_pause,
+        on_quit=app.on_quit,
+        on_unwatch=app.on_unwatch,
+        on_search=app.on_search,
+        on_open_recent=app.on_open_recent,
+    )
     delegate = _Delegate.alloc().initWithApp_(app)
     ns_app.setDelegate_(delegate)
 

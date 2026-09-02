@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Peekaboo</title>
+<style>
+  :root {
+    --accent: #4f46e5; --accent-soft: #eef0fd; --text: #1d1d1f; --muted: #6e6e73;
+    --line: #e5e5ea; --panel: #f5f5f7; --bg: #ffffff; --mark: #fff3a3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --accent: #7c74f2; --accent-soft: #2a2940; --text: #f2f2f5; --muted: #98989f;
+            --line: #3a3a3f; --panel: #1f1f22; --bg: #161618; --mark: #6b5d1a; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 13px/1.45 -apple-system, "Instrument Sans", system-ui, sans-serif; color: var(--text);
+         background: var(--bg); display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
+  header { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  header input { flex: 1; font: inherit; font-size: 15px; padding: 9px 12px; border: 1px solid var(--line);
+                 border-radius: 9px; background: var(--panel); color: var(--text); outline: none; }
+  header input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  button:disabled { opacity: .5; cursor: default; }
+  main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; min-height: 0; }
+  #left { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  #answer { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--accent-soft); display: none; }
+  #answer.on { display: block; }
+  #answer .progress { color: var(--muted); font-size: 12px; }
+  #answer .text { margin-top: 6px; font-size: 14px; }
+  #list-head { padding: 8px 16px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  #list { overflow-y: auto; flex: 1; }
+  .card { display: grid; grid-template-columns: 112px 1fr; gap: 12px; padding: 10px 16px; cursor: pointer;
+          border-bottom: 1px solid var(--line); }
+  .card:hover { background: var(--panel); }
+  .card.selected { background: var(--accent-soft); }
+  .card img { width: 112px; height: 70px; object-fit: cover; border-radius: 6px; background: var(--panel); }
+  .card .when { color: var(--muted); font-size: 12px; }
+  .card .app { font-weight: 600; }
+  .card .title { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .snippet { margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+  #viewer { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  #viewer .bar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  #viewer .bar .meta { flex: 1; min-width: 0; }
+  #viewer .bar .meta b { font-weight: 600; }
+  #viewer .bar .meta span { color: var(--muted); }
+  #frame { min-height: 0; display: grid; grid-template-columns: 1fr 300px; }
+  #frame img { width: 100%; height: 100%; object-fit: contain; background: var(--panel); }
+  #frame .side { padding: 14px 16px; overflow-y: auto; border-left: 1px solid var(--line); }
+  #frame .side h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  #frame .side p { margin: 0 0 14px; }
+  #frame .side ul { margin: 0 0 14px; padding-left: 16px; }
+  #frame .side li { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
+  #empty { display: grid; place-items: center; color: var(--muted); height: 100%; grid-column: 1 / -1; }
+  footer { border-top: 1px solid var(--line); padding: 10px 16px; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+  #hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 34px; }
+  .hour { position: relative; border-radius: 4px; background: var(--panel); cursor: pointer; overflow: hidden; }
+  .hour .fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); opacity: .85; }
+  .hour.selected { outline: 2px solid var(--accent); }
+  .hour:hover::after { content: attr(data-label); position: absolute; top: 2px; left: 4px; font-size: 10px; color: var(--muted); }
+  #day { min-width: 150px; text-align: center; }
+  kbd { font: inherit; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <input id="q" placeholder="Ask about anything you saw, or search a word…" autofocus>
+  <button id="ask" class="primary">Ask</button>
+  <button id="watchers" title="What is being watched">Watchers</button>
+</header>
+<main>
+  <section id="left">
+    <div id="answer"><div class="progress"></div><div class="text"></div></div>
+    <div id="list-head">Recent</div>
+    <div id="list"></div>
+  </section>
+  <section id="viewer">
+    <div class="bar">
+      <button id="prev" title="Earlier (←)">‹</button>
+      <button id="next" title="Later (→)">›</button>
+      <div class="meta" id="meta"><span>Pick a memory</span></div>
+    </div>
+    <div id="frame"><div id="empty">Nothing selected. <kbd>←</kbd> <kbd>→</kbd> step through neighbouring frames.</div></div>
+  </section>
+</main>
+<footer>
+  <button id="prevday">‹</button>
+  <div id="hours"></div>
+  <div style="display:flex;align-items:center;gap:8px"><span id="day"></span><button id="nextday">›</button></div>
+</footer>
+
+<script>
+// ---- bridge -----------------------------------------------------------
+const pending = new Map();
+let seq = 0;
+function call(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    const id = ++seq;
+    pending.set(id, { resolve, reject });
+    window.webkit.messageHandlers.peekaboo.postMessage({ id, method, params });
+  });
+}
+window.peekaboo = {
+  receive(msg) {
+    if (msg.event === "result") {
+      const p = pending.get(msg.payload.id);
+      if (!p) return;
+      pending.delete(msg.payload.id);
+      msg.payload.error ? p.reject(new Error(msg.payload.error)) : p.resolve(msg.payload.result);
+      return;
+    }
+    handle(msg.event, msg.payload);
+  },
+};
+
+// ---- state ------------------------------------------------------------
+const $ = (s) => document.querySelector(s);
+let items = [];          // the list on the left, newest first
+let selected = null;     // observation in the viewer
+let terms = [];          // highlighted words
+const STOP = new Set("the a an and or of to in on at for from with was were is are be been my me i it this that what when where how did do does around about".split(" "));
+function keywords(q) { return q.toLowerCase().split(/[^\p{L}\p{N}_./-]+/u).filter((t) => t.length >= 3 && !STOP.has(t)); }
+let day = todayISO();
+let hour = null;
+
+function todayISO() { const d = new Date(); return d.toISOString().slice(0, 10); }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function hi(s) {
+  let out = esc(s);
+  for (const t of terms) {
+    if (t.length < 2) continue;
+    out = out.replace(new RegExp("(" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig"), "<mark>$1</mark>");
+  }
+  return out;
+}
+function when(o) { return new Date(o.ts * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
+
+// ---- list -------------------------------------------------------------
+function renderList(head) {
+  $("#list-head").textContent = head;
+  const list = $("#list");
+  list.innerHTML = "";
+  for (const o of items) {
+    const card = document.createElement("div");
+    card.className = "card" + (selected && selected.id === o.id ? " selected" : "");
+    card.innerHTML = `
+      ${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : `<div></div>`}
+      <div>
+        <div class="when">${when(o)}</div>
+        <div class="app">${esc(o.app || "Screen")}</div>
+        <div class="title">${esc(o.title || "")}</div>
+        <div class="snippet">${hi(o.content)}</div>
+      </div>`;
+    card.dataset.id = o.id;
+    card.onclick = () => select(o);
+    list.appendChild(card);
+  }
+  if (!items.length) list.innerHTML = `<div style="padding:16px;color:var(--muted)">Nothing here.</div>`;
+}
+
+// ---- viewer -----------------------------------------------------------
+function select(o) {
+  selected = o;
+  document.querySelectorAll(".card").forEach((c) => c.classList.toggle("selected", Number(c.dataset.id) === o.id));
+  $("#meta").innerHTML = `<b>${esc(o.app || "Screen")}</b> <span>${esc(o.title || "")}</span><br><span>${when(o)}</span>`;
+  const verbatim = (o.verbatim_text || []).map((t) => `<li>${hi(t)}</li>`).join("");
+  $("#frame").innerHTML = `
+    ${o.screenshot_url ? `<img src="${o.screenshot_url}" alt="">` : `<div id="empty">The screenshot for this memory has been pruned.</div>`}
+    <div class="side">
+      <h4>What was on screen</h4><p>${hi(o.content)}</p>
+      ${verbatim ? `<h4>Verbatim</h4><ul>${verbatim}</ul>` : ""}
+    </div>`;
+}
+function step(delta) {
+  if (!selected) return;
+  const i = items.findIndex((o) => o.id === selected.id);
+  const j = i + delta;
+  if (j >= 0 && j < items.length) select(items[j]);
+}
+// items are newest first: "earlier" is +1, "later" is -1
+$("#prev").onclick = () => step(1);
+$("#next").onclick = () => step(-1);
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowLeft") step(1);
+  if (e.key === "ArrowRight") step(-1);
+});
+
+// ---- ask and search ---------------------------------------------------
+async function submit() {
+  const q = $("#q").value.trim();
+  if (!q) return;
+  terms = keywords(q);
+  const answer = $("#answer");
+  answer.classList.add("on");
+  answer.querySelector(".progress").textContent = "Searching…";
+  answer.querySelector(".text").textContent = "";
+  $("#ask").disabled = true;
+  // Keyword hits right away; the model's answer streams in through events.
+  items = await call("search", { query: q, limit: 30 });
+  renderList(`Matches for “${q}”`);
+  if (items.length) select(items[0]);
+  await call("ask", { question: q });
+}
+$("#ask").onclick = submit;
+$("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+
+function handle(event, payload) {
+  if (event === "ask.progress") {
+    $("#answer .progress").textContent = payload.text;
+  } else if (event === "ask.answer") {
+    $("#answer .progress").textContent = payload.ok === false ? "Couldn't finish." : "Answer";
+    $("#answer .text").textContent = payload.answer || "";
+    $("#ask").disabled = false;
+    if (payload.observations && payload.observations.length) {
+      items = payload.observations;
+      renderList("The memories behind the answer");
+      select(items[0]);
+    }
+  } else if (event === "show") {
+    call("get", { ids: payload.ids }).then((obs) => {
+      if (!obs.length) return;
+      terms = [];
+      items = obs;
+      renderList("Show me");
+      select(obs[0]);
+    });
+  } else if (event === "watchers") {
+    showWatchers(payload.watchers);
+  }
+}
+
+$("#watchers").onclick = async () => {
+  const r = await call("watchers", {});
+  showWatchers(r.watchers || []);
+};
+function showWatchers(watchers) {
+  const answer = $("#answer");
+  answer.classList.add("on");
+  answer.querySelector(".progress").textContent = watchers.length ? "Watching" : "Nothing is being watched";
+  answer.querySelector(".text").innerHTML = watchers.map((w) =>
+    `<div>${esc(w.target)}: ${esc(w.condition)} <button data-id="${w.id}" style="padding:2px 8px;margin-left:6px">Stop</button></div>`).join("");
+  answer.querySelectorAll("button[data-id]").forEach((b) => (b.onclick = async () => {
+    await call("unwatch", { id: Number(b.dataset.id) });
+    $("#watchers").click();
+  }));
+}
+
+// ---- timeline ---------------------------------------------------------
+async function loadDay() {
+  const cov = await call("day", { date: day });
+  $("#day").textContent = new Date(day + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+  const max = Math.max(1, ...cov.hours.map((h) => h.count));
+  const hours = $("#hours");
+  hours.innerHTML = "";
+  for (let h = 0; h < 24; h++) {
+    const c = cov.hours.find((x) => x.hour === h)?.count || 0;
+    const cell = document.createElement("div");
+    cell.className = "hour" + (hour === h ? " selected" : "");
+    cell.dataset.label = `${String(h).padStart(2, "0")}:00 · ${c}`;
+    cell.innerHTML = `<div class="fill" style="height:${Math.round((c / max) * 100)}%"></div>`;
+    cell.onclick = () => loadHour(h);
+    hours.appendChild(cell);
+  }
+}
+async function loadHour(h) {
+  hour = h;
+  terms = [];
+  items = await call("hour", { date: day, hour: h });
+  renderList(`${day} ${String(h).padStart(2, "0")}:00`);
+  if (items.length) select(items[0]);
+  loadDay();
+}
+function shiftDay(n) {
+  const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + n);
+  day = d.toISOString().slice(0, 10); hour = null; loadDay();
+}
+$("#prevday").onclick = () => shiftDay(-1);
+$("#nextday").onclick = () => shiftDay(1);
+
+// ---- start ------------------------------------------------------------
+(async () => {
+  window.webkit.messageHandlers.peekaboo.postMessage({ method: "ready" });
+  items = await call("recent", { limit: 30 });
+  renderList("Recent");
+  if (items.length) select(items[0]);
+  loadDay();
+})();
+</script>
+</body>
+</html>

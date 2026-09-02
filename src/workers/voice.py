@@ -112,6 +112,9 @@ Tool-use rules:
 - When you call [look] or [watch], call it without saying anything first. An
   acknowledgement is spoken for you, and the result arrives separately.
 
+- After an answer about the past, "show me" means call [show_me]: it opens
+  the screenshots behind that answer in a window.
+
 - Reminders about meetings or scheduled events that appeared on the screen
   arrive as developer messages. Tell the user in one short sentence and, if
   there is a link, ask whether to open it. When they agree, call
@@ -157,6 +160,7 @@ class VoiceWorker(PipelineWorker):
         speech: SpeechServices = "cloud",
         registry: Optional["WindowRegistry"] = None,
         on_state: Optional[Callable[[str], None]] = None,
+        on_show: Optional[Callable[[list[int]], None]] = None,
         quiet_checks: Optional[list[Callable[[], bool]]] = None,
         idle_timeout_secs: float | None = None,
         **kwargs,
@@ -167,6 +171,9 @@ class VoiceWorker(PipelineWorker):
         self._open_links = open_links
         self._speech = speech
         self._registry = registry
+        self._on_show = on_show
+        # The observations behind the last spoken answer, for "show me".
+        self._last_ids: list[int] = []
         self._screen_bridge = (
             ScreenBridge(screen_worker_name=screen_worker) if screen_from_transport else None
         )
@@ -237,6 +244,7 @@ class VoiceWorker(PipelineWorker):
         llm.register_function("unwatch", self._unwatch)
         llm.register_function("list_watchers", self._list_watchers)
         llm.register_function("list_windows", self._list_windows)
+        llm.register_function("show_me", self._show_me)
         llm.register_function("join_meeting", self._join_meeting)
         llm.register_function("snooze_reminder", self._snooze_reminder)
 
@@ -295,6 +303,16 @@ class VoiceWorker(PipelineWorker):
             required=[],
         )
 
+        show_me_function = FunctionSchema(
+            name="show_me",
+            description=(
+                "Open the memories window on the screenshots behind the last answer about the "
+                "past. Call it when the user says 'show me' or asks to see it."
+            ),
+            properties={},
+            required=[],
+        )
+
         list_windows_function = FunctionSchema(
             name="list_windows",
             description="The apps and windows open right now, front to back.",
@@ -334,6 +352,7 @@ class VoiceWorker(PipelineWorker):
                     unwatch_function,
                     list_watchers_function,
                     list_windows_function,
+                    show_me_function,
                     join_function,
                     snooze_function,
                 ]
@@ -509,6 +528,13 @@ class VoiceWorker(PipelineWorker):
             return
         await params.result_callback(t.response or {})
 
+    async def _show_me(self, params: FunctionCallParams):
+        if not self._last_ids or self._on_show is None:
+            await params.result_callback({"opened": False, "reason": "nothing to show yet"})
+            return
+        self._on_show(list(self._last_ids))
+        await params.result_callback({"opened": True, "count": len(self._last_ids)})
+
     async def _list_windows(self, params: FunctionCallParams):
         if self._registry is None:
             await params.result_callback({"windows": [], "note": "Only the shared screen is available."})
@@ -571,7 +597,10 @@ class VoiceWorker(PipelineWorker):
         self._watch_jobs.discard(message.job_id)
         if message.status == JobStatus.CANCELLED:
             return
-        text = (message.response or {}).get("answer")
+        response = message.response or {}
+        if response.get("observation_ids"):
+            self._last_ids = [int(i) for i in response["observation_ids"]]
+        text = response.get("answer")
         if text:
             self._moments.enqueue(Moment(kind=MomentKind.ANSWER, text=text))
 

@@ -61,6 +61,10 @@ class _Target(NSObject):
         if self._menubar._on_open_recent:
             self._menubar._on_open_recent(int(sender.representedObject()))
 
+    def search_(self, sender):
+        if self._menubar._on_search:
+            self._menubar._on_search()
+
 
 class MenuBar:
     """The status item and its menu. Create on the main thread."""
@@ -71,11 +75,13 @@ class MenuBar:
         on_pause: Callable[[bool], None],
         on_quit: Callable[[], None],
         on_unwatch: Callable[[int], None],
+        on_search: Optional[Callable[[], None]] = None,
         on_open_recent: Optional[Callable[[int], None]] = None,
     ):
         self._on_pause = on_pause
         self._on_quit = on_quit
         self._on_unwatch = on_unwatch
+        self._on_search = on_search
         self._on_open_recent = on_open_recent
         self._paused = False
         self._state: State = "idle"
@@ -102,6 +108,8 @@ class MenuBar:
         self._recent_item = self._add(self._menu, "Recent", None)
         self._recent_menu = AppKit.NSMenu.alloc().init()
         self._recent_item.setSubmenu_(self._recent_menu)
+        self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
+        self._add(self._menu, "Search Memories…", "search:", key="f").setEnabled_(on_search is not None)
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
         self._add(self._menu, "Quit Peekaboo", "quit:", key="q")
         self._item.setMenu_(self._menu)
