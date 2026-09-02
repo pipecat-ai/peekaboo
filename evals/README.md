@@ -8,9 +8,10 @@ uv run evals/run.py --start-bot evals/*.yaml
 ```
 
 That starts a fresh bot per scenario under the eval transport, runs the
-scenario, stops the bot, and prints what it spoke. Spoken answers bypass the
-LLM, so the harness cannot assert on them; the runner reads them from the bot
-log instead, and flags tracebacks or errors in it. Logs land in `evals/logs/`.
+scenario, stops the bot, and prints what it spoke. Spoken answers, and the
+canned acknowledgement after a vision call ("One moment."), bypass the LLM, so
+the harness cannot assert on them; the runner reads them from the bot log
+instead, and flags tracebacks or errors in it. Logs land in `evals/logs/`.
 
 | Scenario | What it checks |
 |---|---|

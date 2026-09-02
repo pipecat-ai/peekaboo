@@ -40,9 +40,10 @@ _SPOKEN = re.compile(r"\| [^ ]+ - (voice: (?:saying|prompting|would open|opened)
 def _port_listening(port: int) -> bool:
     """Whether something is listening on a local TCP port.
 
-    Reads the kernel's socket table instead of connecting, so the bot's
-    websocket server does not log a half-open connection for every probe.
-    Falls back to a connect probe where that table does not exist.
+    Asks the OS instead of connecting, so the bot's websocket server does not
+    log a half-open connection for every probe: the kernel's socket table on
+    Linux, ``lsof`` on macOS. Falls back to a connect probe where neither
+    works.
     """
     try:
         with open("/proc/net/tcp") as f:
@@ -53,6 +54,16 @@ def _port_listening(port: int) -> bool:
                     return True
         return False
     except OSError:
+        pass
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return bool(result.stdout.strip())
+    except (OSError, subprocess.TimeoutExpired):
         import socket
 
         with socket.socket() as s:

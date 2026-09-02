@@ -8,13 +8,15 @@ turns:
   - expect:
       - event: llm_response
 
+  # After a vision call the acknowledgement is a canned line spoken without
+  # running the LLM again, so there is no llm_response to wait for; it shows
+  # up in the runner's "spoken" list as "One moment." / "I'll let you know."
   - user: "What does the terminal window say?"
     expect:
       - event: function_call
         calls:
           - name: get_vision_help
             args: { watchlist: false }
-      - event: llm_response
 
   - user: "Tell me when the build finishes."
     expect:
@@ -22,7 +24,6 @@ turns:
         calls:
           - name: get_vision_help
             args: { watchlist: true }
-      - event: llm_response
 
   # General knowledge: answered directly, no tool. The absence check runs
   # after the answer and only holds the turn open for a short window.

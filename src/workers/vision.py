@@ -44,6 +44,10 @@ FRAME_TIMEOUT_SECS = 10.0
 # How many recent observations a question gets as context.
 CONTEXT_OBSERVATIONS = 8
 
+# A look runs rarely and has to read exact text off a picture: the strongest
+# tier (plan §5). Adaptive thinking, with the thinking text left out.
+VISION_MODEL = "claude-opus-5"
+
 # A look that has not been answered by then is failed, so a hung model call
 # becomes a spoken apology rather than silence. Looks waiting on the history
 # worker are exempt; that worker has its own deadline.
@@ -66,8 +70,9 @@ Use those for what happened moments ago. For anything earlier than that, or
 when the question is about a past day, call [start_history_agent]; do not
 guess and do not say you have no access to the past.
 
-All responses must be very brief and easy to speak aloud. Do not use emojis,
-bullet points, or symbols that are difficult to vocalize.
+Answer in one or two short sentences unless the user asks for detail; every
+extra sentence is seconds of speech. Do not use emojis, bullet points, or
+symbols that are difficult to vocalize.
 
 """
 
@@ -128,6 +133,10 @@ class VisionWorker(PipelineWorker):
             api_key=os.getenv("ANTHROPIC_API_KEY"),
             # A request that hangs on connect is retried once.
             retry_on_timeout=True,
+            settings=AnthropicLLMService.Settings(
+                model=VISION_MODEL,
+                thinking=AnthropicLLMService.ThinkingConfig(type="adaptive", display="omitted"),
+            ),
         )
         llm.register_function("start_history_agent", self._start_history)
 

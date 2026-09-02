@@ -101,3 +101,23 @@ def test_snooze_and_expiry():
     h.policy.enqueue(expired)
     asyncio.run(h.policy.step())
     assert expired not in h.policy.pending
+
+
+def test_answers_skip_the_settle_wait_but_unsolicited_moments_do_not():
+    spoken: list[Moment] = []
+
+    async def speak(m):
+        spoken.append(m)
+
+    # A long settle: the conversation just went idle, nothing has settled yet.
+    policy = MomentPolicy(is_idle=lambda: True, speak=speak, settle_secs=10.0)
+    policy.enqueue(Moment(kind=MomentKind.WATCH, text="watch"))
+    policy.enqueue(Moment(kind=MomentKind.ANSWER, text="answer"))
+
+    async def run():
+        await policy.step()
+        await policy.step()
+
+    asyncio.run(run())
+    assert [m.text for m in spoken] == ["answer"]
+    assert [m.text for m in policy.pending] == ["watch"]

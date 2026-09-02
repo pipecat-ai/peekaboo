@@ -49,6 +49,9 @@ NOTIFICATION_DEDUP_SECS = 10 * 60
 
 FRAME_JPEG_QUALITY = 80
 
+# Runs on every changed frame, all day: the cheapest capable tier (plan §5).
+SCREEN_MODEL = "claude-haiku-4-5"
+
 IMAGE_SYSTEM_INSTRUCTION = """
 
 You are a vision agent. You will be given images and must analyze them.
@@ -195,6 +198,7 @@ class ScreenWorker(PipelineWorker):
             # A request that hangs on connect is retried once.
             retry_on_timeout=True,
             settings=AnthropicLLMService.Settings(
+                model=SCREEN_MODEL,
                 extra={
                     "extra_headers": {
                         "anthropic-beta": "structured-outputs-2025-11-13",

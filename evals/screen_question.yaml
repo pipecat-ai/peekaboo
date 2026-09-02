@@ -3,8 +3,9 @@
 # this exercises the screen bridge, the vision image branch, the store, and
 # the answer coming back to the voice worker as a job response.
 #
-# The spoken answer bypasses the LLM, so it does not show up as an event here.
-# Check the bot log for a "saying:" line that quotes the terminal output.
+# The acknowledgement ("One moment.") and the spoken answer both bypass the
+# LLM, so neither shows up as an event here. Check the runner's "spoken" list
+# for a line that quotes the terminal output.
 name: screen_question
 turns:
   - expect:
@@ -17,7 +18,6 @@ turns:
         calls:
           - name: get_vision_help
             args: { watchlist: false }
-      - event: llm_response
 
   # Hold the session open so the vision answer has time to arrive.
   - expect:
@@ -33,7 +33,6 @@ turns:
         calls:
           - name: get_vision_help
             args: { watchlist: false }
-      - event: llm_response
 
   - expect:
       - event: function_call

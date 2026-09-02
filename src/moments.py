@@ -74,8 +74,10 @@ class MomentPolicy:
         quiet_checks: Rules that hold unsolicited moments: another app has
             the microphone, the screen is being shared. Any one holding is
             enough.
-        settle_secs: How long the conversation must have been idle before a
-            moment goes out, so it never lands on the user's next word.
+        settle_secs: How long the conversation must have been idle before an
+            unsolicited moment goes out, so it never lands on the user's next
+            word. Answers the user is waiting for go as soon as nobody is
+            talking.
     """
 
     def __init__(
@@ -145,8 +147,7 @@ class MomentPolicy:
             return
         if self._idle_since is None:
             self._idle_since = now
-        if now - self._idle_since < self._settle_secs:
-            return
+        settled = now - self._idle_since >= self._settle_secs
 
         ready = [m for m in self._queue if m.not_before <= now]
         if not ready:
@@ -155,6 +156,8 @@ class MomentPolicy:
 
         quiet = self.quiet()
         for moment in ready:
+            if moment.unsolicited and not settled:
+                continue
             if moment.unsolicited and quiet:
                 if not moment.bannered and self._banner:
                     moment.bannered = True

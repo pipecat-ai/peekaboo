@@ -6,6 +6,7 @@
 
 import asyncio
 import os
+import re
 import webbrowser
 from collections.abc import Callable
 from typing import Optional
@@ -21,7 +22,12 @@ from pipecat.bus.messages import (
     BusJobUpdateMessage,
     BusJobUpdateUrgentMessage,
 )
-from pipecat.frames.frames import LLMMessagesAppendFrame, LLMMessagesUpdateFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    FunctionCallResultProperties,
+    LLMMessagesAppendFrame,
+    LLMMessagesUpdateFrame,
+    TTSSpeakFrame,
+)
 from pipecat.pipeline.job_context import JobParams, JobStatus
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -44,8 +50,25 @@ from workers.names import SCREEN_WORKER, VISION_WORKER, VOICE_WORKER
 # A meeting reminder nobody acted on stops mattering a while after the start.
 MEETING_MOMENT_LIFETIME_SECS = 20 * 60
 
+# The voice LLM only routes: call a tool or not, and phrase short lines. The
+# fastest tier is the right one; a slower model here is felt on every turn.
+VOICE_MODEL = "claude-haiku-4-5"
+
+# Spoken the moment a screen question goes out, instead of a second LLM call
+# to phrase an acknowledgement. Saves about 1.3 s on every question.
+LOOK_FILLER = "One moment."
+WATCH_FILLER = "I'll let you know."
+
 # Kokoro voice: British English, female. Others: af_heart, bm_george, am_adam.
 KOKORO_VOICE = "bf_emma"
+
+# Kokoro on the CPU synthesizes a long paragraph in one go and hands it over
+# whole, so a TTS context can sit silent for a few seconds before its audio
+# arrives; the default 3 s idle timeout closes it as silent. Answers are spoken
+# sentence by sentence to keep each context short; this is the backstop.
+TTS_IDLE_TIMEOUT_SECS = 15.0
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=\S)")
 
 SYSTEM_INSTRUCTION = """
 
@@ -64,6 +87,9 @@ Tool-use rules:
 
 - If the user wants to be told when something happens on screen, call
   [get_vision_help] with watchlist set to true.
+
+- When you call [get_vision_help], call it without saying anything first. An
+  acknowledgement is spoken for you, and the answer arrives separately.
 
 - Reminders about meetings or scheduled events that appeared on the screen
   arrive as developer messages. Tell the user in one short sentence and, if
@@ -150,6 +176,7 @@ class VoiceWorker(PipelineWorker):
 
         tts = KokoroTTSService(
             settings=KokoroTTSService.Settings(voice=KOKORO_VOICE),
+            stop_frame_timeout_s=TTS_IDLE_TIMEOUT_SECS,
         )
 
         llm = AnthropicLLMService(
@@ -157,7 +184,9 @@ class VoiceWorker(PipelineWorker):
             api_key=os.getenv("ANTHROPIC_API_KEY"),
             # A request that hangs on connect is retried once.
             retry_on_timeout=True,
-            settings=AnthropicLLMService.Settings(system_instruction=SYSTEM_INSTRUCTION),
+            settings=AnthropicLLMService.Settings(
+                model=VOICE_MODEL, system_instruction=SYSTEM_INSTRUCTION
+            ),
         )
         llm.register_function("get_vision_help", self._get_vision_help)
         llm.register_function("join_meeting", self._join_meeting)
@@ -276,18 +305,17 @@ class VoiceWorker(PipelineWorker):
             await self.cancel_task(task)
         await super().cleanup()
 
-    async def cleanup(self):
-        # The moment policy runs for the life of the session; take it down
-        # with the worker so shutdown leaves nothing dangling.
-        if self._moments_task:
-            task, self._moments_task = self._moments_task, None
-            await self.cancel_task(task)
-        await super().cleanup()
-
     async def say(self, text: str):
-        """Speak text directly, bypassing the LLM."""
+        """Speak text directly, bypassing the LLM.
+
+        One TTS request per sentence: the first sentence is playing while the
+        rest are still being synthesized, and no single request runs long
+        enough to be closed as silent.
+        """
         logger.info(f"{self}: saying: {text}")
-        await self.queue_frame(TTSSpeakFrame(text=text))
+        for sentence in _SENTENCE_END.split(text.strip()):
+            if sentence:
+                await self.queue_frame(TTSSpeakFrame(text=sentence))
 
     #
     # Moments
@@ -334,24 +362,27 @@ class VoiceWorker(PipelineWorker):
         watchlist = params.arguments["watchlist"]
 
         # Fire and forget: the answer, or the watch hits, come back as job
-        # messages and are spoken then. The LLM only acknowledges now.
+        # messages and are spoken then. A canned acknowledgement goes out now
+        # and the LLM is not run again for it; the result only records in the
+        # context what was said.
         if watchlist:
             job_id = await self.request_job(
                 self._screen_worker, params=JobParams(name="watch", payload={"query": query})
             )
             self._watch_jobs.add(job_id)
+            filler = WATCH_FILLER
         else:
             job_id = await self.request_job(
                 self._vision_worker, params=JobParams(name="look", payload={"query": query})
             )
             self._look_jobs.add(job_id)
+            filler = LOOK_FILLER
 
-        result = (
-            "Just tell the user you will let them know. DO NOT provide an answer."
-            if watchlist
-            else "Just tell the user to wait for a second. DO NOT provide an answer."
+        await self.say(filler)
+        await params.result_callback(
+            f"Acknowledged to the user with: \"{filler}\" The answer will be spoken separately.",
+            properties=FunctionCallResultProperties(run_llm=False),
         )
-        await params.result_callback(result)
 
     async def _join_meeting(self, params: FunctionCallParams):
         meeting = self._moments.last_meeting
