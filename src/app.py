@@ -9,9 +9,10 @@ speakers. No browser, no server.
 
     uv run src/app.py
 
-Needs Screen Recording and Microphone granted to the terminal, and an
-``ANTHROPIC_API_KEY`` in a ``.env`` here (see ``.env.example``). Speech
-recognition and synthesis run locally; the models download on first use. The menu bar comes in M4; for
+Needs Screen Recording and Microphone granted to the terminal, and the keys
+from ``.env.example`` in a ``.env`` here. With ``--local-speech`` recognition
+and synthesis run on the machine (Moonshine, Kokoro; models download on first
+use) and only the Anthropic key is needed. The menu bar comes in M4; for
 now this is a terminal process, Ctrl-C to quit.
 """
 
@@ -38,14 +39,15 @@ from workers.voice import VoiceWorker
 # Plan §5: the store lives where Mac apps keep their data.
 DEFAULT_STORE = Path("~/Library/Application Support/Peekaboo").expanduser()
 
-# Speech recognition and synthesis run locally; the LLM is the only service.
-REQUIRED_KEYS = ("ANTHROPIC_API_KEY",)
+# With --local-speech only the LLM needs a key.
+CLOUD_SPEECH_KEYS = ("DEEPGRAM_API_KEY", "CARTESIA_API_KEY")
 
 
 async def main(args) -> int:
     load_dotenv(override=True)
 
-    missing = [k for k in REQUIRED_KEYS if not os.getenv(k)]
+    required = ("ANTHROPIC_API_KEY",) + (() if args.local_speech else CLOUD_SPEECH_KEYS)
+    missing = [k for k in required if not os.getenv(k)]
     if missing:
         logger.error(f"missing {', '.join(missing)}; copy .env.example to .env and fill it in")
         return 1
@@ -74,7 +76,13 @@ async def main(args) -> int:
     # The screen is read from the OS, so the voice pipeline carries audio only
     # and nothing about the screen crosses a transport.
     runner = WorkerRunner(handle_sigint=True)
-    voice = VoiceWorker(transport, screen_from_transport=False, open_links=True, idle_timeout_secs=None)
+    voice = VoiceWorker(
+        transport,
+        screen_from_transport=False,
+        open_links=True,
+        speech="local" if args.local_speech else "cloud",
+        idle_timeout_secs=None,
+    )
     screen = ScreenWorker(store=store, source=source)
     vision = VisionWorker(store=store)
     history = HistoryWorker(store=store)
@@ -97,6 +105,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE, help="where the database and frames live")
     parser.add_argument("--no-voice-processing", action="store_true", help="disable the OS echo canceller")
+    parser.add_argument(
+        "--local-speech",
+        action="store_true",
+        help="Moonshine and Kokoro on the machine instead of Deepgram and Cartesia",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser.parse_args()
 

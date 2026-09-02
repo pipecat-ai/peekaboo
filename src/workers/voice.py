@@ -9,7 +9,7 @@ import os
 import re
 import webbrowser
 from collections.abc import Callable
-from typing import Optional
+from typing import Literal, Optional
 
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -37,9 +37,9 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.services.anthropic.llm import AnthropicLLMService
-from pipecat.services.kokoro.tts import KokoroTTSService
+from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.llm_service import FunctionCallParams
-from pipecat.services.moonshine.stt import MoonshineSTTService
 from pipecat.transports.base_transport import BaseTransport
 
 from moments import Moment, MomentKind, MomentPolicy
@@ -58,6 +58,14 @@ VOICE_MODEL = "claude-haiku-4-5"
 # to phrase an acknowledgement. Saves about 1.3 s on every question.
 LOOK_FILLER = "One moment."
 WATCH_FILLER = "I'll let you know."
+
+# Where speech recognition and synthesis run. "cloud" is Deepgram and
+# Cartesia; "local" is Moonshine and Kokoro on the machine, imported only when
+# chosen so the default start does not load ONNX models.
+SpeechServices = Literal["cloud", "local"]
+
+# Cartesia voice when CARTESIA_VOICE_ID is not set: British Reading Lady.
+CARTESIA_VOICE = "71a7ad14-091c-4e8e-a314-022ece01c121"
 
 # Kokoro voice: British English, female. Others: af_heart, bm_george, am_adam.
 KOKORO_VOICE = "bf_emma"
@@ -129,6 +137,7 @@ class VoiceWorker(PipelineWorker):
         screen_worker: str = SCREEN_WORKER,
         screen_from_transport: bool = True,
         open_links: bool = True,
+        speech: SpeechServices = "cloud",
         quiet_checks: Optional[list[Callable[[], bool]]] = None,
         idle_timeout_secs: float | None = None,
         **kwargs,
@@ -137,6 +146,7 @@ class VoiceWorker(PipelineWorker):
         self._vision_worker = vision_worker
         self._screen_worker = screen_worker
         self._open_links = open_links
+        self._speech = speech
         self._screen_bridge = (
             ScreenBridge(screen_worker_name=screen_worker) if screen_from_transport else None
         )
@@ -167,17 +177,31 @@ class VoiceWorker(PipelineWorker):
             **kwargs,
         )
 
-    def _build_pipeline(self) -> Pipeline:
-        # Speech in both directions stays on the machine: Moonshine transcribes
-        # each turn once it ends (ONNX on the CPU, English small model), Kokoro
-        # synthesizes. Both download their models on first use. The LLM is the
-        # only network service in this pipeline.
-        stt = MoonshineSTTService()
+    def _speech_services(self):
+        if self._speech == "local":
+            # Speech in both directions stays on the machine: Moonshine
+            # transcribes each turn once it ends (ONNX on the CPU), Kokoro
+            # synthesizes. Both download their models on first use.
+            from pipecat.services.kokoro.tts import KokoroTTSService
+            from pipecat.services.moonshine.stt import MoonshineSTTService
 
-        tts = KokoroTTSService(
-            settings=KokoroTTSService.Settings(voice=KOKORO_VOICE),
-            stop_frame_timeout_s=TTS_IDLE_TIMEOUT_SECS,
-        )
+            stt = MoonshineSTTService()
+            tts = KokoroTTSService(
+                settings=KokoroTTSService.Settings(voice=KOKORO_VOICE),
+                stop_frame_timeout_s=TTS_IDLE_TIMEOUT_SECS,
+            )
+        else:
+            stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+            tts = CartesiaTTSService(
+                api_key=os.getenv("CARTESIA_API_KEY"),
+                settings=CartesiaTTSService.Settings(
+                    voice=os.getenv("CARTESIA_VOICE_ID") or CARTESIA_VOICE
+                ),
+            )
+        return stt, tts
+
+    def _build_pipeline(self) -> Pipeline:
+        stt, tts = self._speech_services()
 
         llm = AnthropicLLMService(
             name="VoiceAnthropicLLMService",
