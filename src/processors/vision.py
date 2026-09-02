@@ -4,114 +4,131 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-import copy
 import json
 import time
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional
 
+from loguru import logger
 from PIL import Image
 from pipecat.frames.frames import (
     Frame,
+    InterruptionFrame,
     LLMContextFrame,
     LLMMessagesUpdateFrame,
-    UserImageRawFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext, LLMContextMessage
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from processors.frames import (
-    VisionQueryFrame,
-    VisionRequestFrame,
-    VisionResponseFrame,
-    VisionWatchlistFrame,
-)
+
+from processors.frames import QuestionFrame, ScreenFrame, VisionWatchlistFrame, WatchFrame
+
+# An analysis that takes longer than this is assumed lost, so the image
+# branch accepts frames again.
+ANALYSIS_TIMEOUT_SECS = 45.0
+
+
+@dataclass
+class SentFrame:
+    """A frame handed to the image model, kept so the analysis can be stored with it."""
+
+    target: str
+    timestamp: int
+    image: Image.Image
+    key: str
 
 
 class VisionQueryProcessor(FrameProcessor):
+    """Turns a question, its picture, and recent context into one model call.
+
+    A new question interrupts the answer in progress. The interruption is
+    pushed from here, so it reaches only this pipeline.
+    """
+
     def __init__(self, *, system_instruction: str):
         super().__init__()
         self._system_instruction = system_instruction
-        self._image_messages: List[LLMContextMessage] = []
-        self._query_frame: Optional[VisionQueryFrame] = None
-
-    async def append_image_messages(self, messages: List[LLMContextMessage]):
-        self._image_messages.extend(messages)
-        await self._maybe_run_query()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, VisionQueryFrame) and not frame.watchlist:
-            await self._handle_vision_query_frame(frame)
-        # Ignore UserImageRawFrame they are handled in the other
-        # branch. Otherwise, we would try to add it to the context.
-        elif not isinstance(frame, UserImageRawFrame):
-            await self.push_frame(frame, direction)
-
-    async def _handle_vision_query_frame(self, frame: VisionQueryFrame):
-        self._query_frame = frame
-
-    async def _maybe_run_query(self):
-        if not self._query_frame:
-            return
-
-        image_messages = copy.deepcopy(self._image_messages)
-        self._image_messages = []
-
-        system_message = {
-            "role": "system",
-            "content": self._system_instruction,
-        }
-
-        await self.push_frame(
-            LLMMessagesUpdateFrame(
-                [
-                    system_message,
-                    *image_messages,
-                    {"role": "user", "content": self._query_frame.query},
-                ],
-                run_llm=True,
-            )
-        )
-
-        self._query_frame = None
-
-
-class VisionQueryContextProcessor(FrameProcessor):
-    def __init__(self):
-        super().__init__()
-
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
-
-        if isinstance(frame, LLMContextFrame):
-            await self._handle_llm_context_frame(frame)
+        if isinstance(frame, QuestionFrame):
+            await self._handle_question(frame)
         else:
             await self.push_frame(frame, direction)
 
-    async def _handle_llm_context_frame(self, frame: LLMContextFrame):
-        # If we get here we got an assistant message. The content should be our
-        # response.
-        response = frame.context.messages[-1]["content"]
-        await self.queue_frame(VisionResponseFrame(response=response))
+    async def _handle_question(self, frame: QuestionFrame):
+        await self.push_frame(InterruptionFrame())
+
+        system_message = {"role": "system", "content": self._system_instruction}
+
+        text = frame.query
+        if frame.context:
+            lines = "\n".join(json.dumps(item) for item in frame.context)
+            text = f"Recent screen descriptions, oldest first:\n{lines}\n\nQuestion: {frame.query}"
+
+        if frame.image and frame.size:
+            question = await LLMContext.create_image_message(
+                format="image/jpeg",
+                size=frame.size,
+                image=frame.image,
+                text=text,
+            )
+        else:
+            question = {"role": "user", "content": text}
+
+        await self.push_frame(LLMMessagesUpdateFrame([system_message, question], run_llm=True))
 
 
 class VisionImageProcessor(FrameProcessor):
-    def __init__(self, *, system_instruction: str):
+    """Describes changed screen frames and checks them against the watchlist.
+
+    One frame at a time: while the model works on one, others are skipped,
+    and unchanged frames are skipped outright. The worker calls
+    :meth:`set_idle` when an analysis finishes.
+    """
+
+    def __init__(self, *, system_instruction: str, watchlist: Optional[List[str]] = None):
         super().__init__()
         self._system_instruction = system_instruction
-        self._watchlist_queries: List[str] = []
-        self._watchlist_messages: List[LLMContextFrame] = []
+        self._watchlist_queries: List[str] = list(watchlist or [])
+        self._watchlist_messages: List[LLMContextMessage] = []
+        self._last_sent: Optional[SentFrame] = None
+        self._busy_since: Optional[float] = None
+
+        # Fired with the analysis dict of a frame that matched watchlist items.
+        self._register_event_handler("on_watchlist_hit")
+
+    def take_last_sent(self) -> Optional[SentFrame]:
+        """The frame most recently sent to the model, once."""
+        sent, self._last_sent = self._last_sent, None
+        return sent
+
+    def set_idle(self):
+        """The current analysis is over; the next changed frame may go."""
+        self._busy_since = None
+
+    @property
+    def busy(self) -> bool:
+        if self._busy_since is None:
+            return False
+        if time.monotonic() - self._busy_since > ANALYSIS_TIMEOUT_SECS:
+            logger.warning(f"{self}: analysis took too long, accepting frames again")
+            self._busy_since = None
+            return False
+        return True
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, VisionQueryFrame) and frame.watchlist:
-            await self._handle_vision_query_frame(frame)
-        elif isinstance(frame, UserImageRawFrame):
-            await self._handle_user_image_frame(frame)
+        if isinstance(frame, WatchFrame):
+            self._watchlist_queries.append(frame.query)
+        elif isinstance(frame, ScreenFrame):
+            await self._handle_screen_frame(frame)
         elif isinstance(frame, VisionWatchlistFrame):
             await self._handle_vision_watchlist_frame(frame)
         else:
+            if isinstance(frame, InterruptionFrame):
+                self.set_idle()
             await self.push_frame(frame, direction)
 
     async def _handle_vision_watchlist_frame(self, frame: VisionWatchlistFrame):
@@ -126,12 +143,15 @@ class VisionImageProcessor(FrameProcessor):
                 {"role": "assistant", "content": content},
             ]
         )
-        await self.push_frame(VisionResponseFrame(response=content))
+        await self._call_event_handler("on_watchlist_hit", frame.content)
 
-    async def _handle_vision_query_frame(self, frame: VisionQueryFrame):
-        self._watchlist_queries.append(frame.query)
+    async def _handle_screen_frame(self, frame: ScreenFrame):
+        if not frame.changed:
+            return
+        if self.busy:
+            logger.trace(f"{self}: busy, skipping {frame}")
+            return
 
-    async def _handle_user_image_frame(self, frame: UserImageRawFrame):
         watchlist_queries = "\n".join(f"{i}. {w}" for (i, w) in enumerate(self._watchlist_queries))
         system_instruction = self._system_instruction + watchlist_queries
 
@@ -140,56 +160,40 @@ class VisionImageProcessor(FrameProcessor):
             "content": system_instruction,
         }
 
-        text = (
-            frame.text or "Describe the image and check if it contains anything from the watchlist"
-        )
-
         query = {
-            "text": text,
-            "timestamp": int(time.time()),
+            "text": "Describe the image and check if it contains anything from the watchlist",
+            "timestamp": frame.timestamp,
         }
 
-        image = await self._resize_image(frame.image, frame.size, frame.format)
-
         message = await LLMContext.create_image_message(
-            image=image.tobytes(),
-            size=image.size,
+            image=frame.image.tobytes(),
+            size=frame.image.size,
             format="RGB",
             text=json.dumps(query),
         )
+
+        self._last_sent = SentFrame(
+            target=frame.target, timestamp=frame.timestamp, image=frame.image, key=frame.key or ""
+        )
+        self._busy_since = time.monotonic()
 
         all_messages = [system_message, *self._watchlist_messages, message]
 
         await self.push_frame(LLMMessagesUpdateFrame(messages=all_messages, run_llm=True))
 
-    async def _resize_image(self, data: bytes, size: Tuple[int, int], format: str) -> Image.Image:
-        loop = self.get_event_loop()
-
-        def resize() -> Image.Image:
-            img = Image.frombytes(format, size, data)
-
-            # Compute new height to maintain aspect ratio
-            new_width = 1080
-            new_height = int((new_width / img.width) * img.height)
-
-            return img.resize((new_width, new_height), resample=Image.Resampling.LANCZOS)
-
-        return await loop.run_in_executor(None, resize)
-
 
 class VisionImageContextProcessor(FrameProcessor):
-    def __init__(
-        self,
-        *,
-        query_processor: VisionQueryProcessor,
-        watchlist_timeout: int = 60,
-    ):
+    """Turns the image model's JSON into events: an analysis, and watch hits."""
+
+    def __init__(self, *, watchlist_timeout: int = 60):
         super().__init__()
-        self._query_processor = query_processor
         self._watchlist_timeout = watchlist_timeout
         self._watchlist_timestamps: Dict[int, int] = {}
 
         self._register_event_handler("on_image_analysis")
+        # Fired after every model response with whether it parsed, so the
+        # worker can let the next frame through or ask for this one again.
+        self._register_event_handler("on_analysis_finished")
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -208,30 +212,15 @@ class VisionImageContextProcessor(FrameProcessor):
 
             await self._call_event_handler("on_image_analysis", content_dict)
 
-            # If we get a watchlist response we should send it to the voice agent
-            # right away.
+            # A watchlist match goes out right away.
             if content_dict.get("type", "") == "watchlist":
                 await self._maybe_send_watchlist_item(content_dict)
-            else:
-                await self._send_messages_to_query_processor(assistant_message)
-        except Exception:
-            # If there's an interruption we might only get half of the JSON
-            # response. So, we just ignore that.
-            pass
 
-        # We know that every time we get here we can request a new image.
-        await self.push_frame(VisionRequestFrame())
-
-    async def _send_messages_to_query_processor(self, message: LLMContextMessage):
-        await self._query_processor.append_image_messages(
-            [
-                {
-                    "role": "user",
-                    "content": "Image removed from this message for efficiency.",
-                },
-                message,
-            ]
-        )
+            await self._call_event_handler("on_analysis_finished", True)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as e:
+            # An interruption can leave half a JSON response behind.
+            logger.debug(f"{self}: could not parse analysis: {e}")
+            await self._call_event_handler("on_analysis_finished", False)
 
     async def _maybe_send_watchlist_item(self, item: Mapping[str, Any]):
         timestamp = item["timestamp"]

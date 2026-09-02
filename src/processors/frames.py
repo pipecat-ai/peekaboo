@@ -4,45 +4,76 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
+
+from PIL import Image
 from pipecat.frames.frames import SystemFrame
 
 
 @dataclass
-class VoiceAgentStartedFrame(SystemFrame):
-    pass
+class CaptureRequestFrame(SystemFrame):
+    """Ask the frame source for one frame of a target, now."""
+
+    target: str
+
+    def __str__(self):
+        return f"{self.name}(target: {self.target})"
+
 
 @dataclass
-class VoiceAgentStoppedFrame(SystemFrame):
-    pass
+class ScreenFrame(SystemFrame):
+    """One captured frame of a target, ready for analysis.
+
+    Produced by a frame source. The change gate fills in ``signature``,
+    ``key`` and ``changed`` on its way through.
+    """
+
+    target: str
+    image: Image.Image
+    timestamp: int
+    signature: Optional[bytes] = field(default=None, repr=False)
+    key: Optional[str] = None
+    """Identity of the frame for storage: same key, same picture."""
+    changed: bool = True
+    """Whether the frame differs from the last one analyzed for this target."""
+
+    def __str__(self):
+        return (
+            f"{self.name}(target: {self.target} size: {self.image.size} "
+            f"key: {self.key} changed: {self.changed})"
+        )
+
 
 @dataclass
-class VisionQueryFrame(SystemFrame):
+class WatchFrame(SystemFrame):
+    """Something to watch for on screen, added to the image branch's list."""
+
     query: str
-    watchlist: bool
 
     def __str__(self):
-        return f"{self.name}(query: {self.query} watchlist: {self.watchlist})"
+        return f"{self.name}(query: {self.query})"
 
 
 @dataclass
-class VisionRequestFrame(SystemFrame):
-    text: Optional[str] = None
+class QuestionFrame(SystemFrame):
+    """A question about the screen, with the picture and recent context to answer it from."""
+
+    query: str
+    image: Optional[bytes] = field(default=None, repr=False)
+    """JPEG bytes of the screen right now, when a frame was available."""
+    size: Optional[tuple[int, int]] = None
+    context: list[dict] = field(default_factory=list)
+    """Recent observations, oldest first, in their LLM shape."""
 
     def __str__(self):
-        return f"{self.name}(text: {self.text})"
+        return f"{self.name}(query: {self.query} image: {self.size} context: {len(self.context)})"
 
-
-@dataclass
-class VisionResponseFrame(SystemFrame):
-    response: str
-
-    def __str__(self):
-        return f"{self.name}(response: {self.response})"
 
 @dataclass
 class VisionWatchlistFrame(SystemFrame):
+    """An image analysis that matched one or more watchlist items."""
+
     content: Mapping[str, Any]
 
     def __str__(self):
