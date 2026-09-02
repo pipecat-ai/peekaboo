@@ -1,0 +1,41 @@
+# Text-mode scenario with a screen frame. The harness registers the image for
+# the turn and the eval transport serves it for every screen frame request, so
+# this exercises the screen bridge, the vision image branch, the store, and
+# the answer coming back to the voice worker as a job response.
+#
+# The spoken answer bypasses the LLM, so it does not show up as an event here.
+# Check the bot log for a "saying:" line that quotes the terminal output.
+name: screen_question
+turns:
+  - expect:
+      - event: llm_response
+
+  - user: "What does the terminal window say?"
+    image: fixtures/terminal.png
+    expect:
+      - event: function_call
+        calls:
+          - name: get_vision_help
+            args: { watchlist: false }
+      - event: llm_response
+
+  # Hold the session open so the vision answer has time to arrive.
+  - expect:
+      - event: function_call
+        absent: true
+        within_ms: 20000
+
+  # A question about the past goes to the history worker, which searches the
+  # store. Look for search_history / timeline calls in the bot log.
+  - user: "What was on my screen yesterday afternoon?"
+    expect:
+      - event: function_call
+        calls:
+          - name: get_vision_help
+            args: { watchlist: false }
+      - event: llm_response
+
+  - expect:
+      - event: function_call
+        absent: true
+        within_ms: 25000

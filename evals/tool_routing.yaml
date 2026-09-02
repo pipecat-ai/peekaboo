@@ -1,0 +1,35 @@
+# Text-mode scenario: drives the voice worker with typed turns and checks that
+# questions are routed to the right tool. No judge needed: every assertion is
+# deterministic. Run the bot with `uv run src/bot.py -t eval`, then
+# `uv run evals/run.py evals/tool_routing.yaml`.
+name: tool_routing
+turns:
+  # The bot greets on connect. Wait for it before speaking.
+  - expect:
+      - event: llm_response
+
+  - user: "What does the terminal window say?"
+    expect:
+      - event: function_call
+        calls:
+          - name: get_vision_help
+            args: { watchlist: false }
+      - event: llm_response
+
+  - user: "Tell me when the build finishes."
+    expect:
+      - event: function_call
+        calls:
+          - name: get_vision_help
+            args: { watchlist: true }
+      - event: llm_response
+
+  # General knowledge: answered directly, no tool. The absence check runs
+  # after the answer and only holds the turn open for a short window.
+  - user: "What is the capital of France?"
+    expect:
+      - event: llm_response
+        text_contains: "Paris"
+      - event: function_call
+        absent: true
+        within_ms: 3000

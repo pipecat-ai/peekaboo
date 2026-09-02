@@ -1,0 +1,24 @@
+# A meeting notification appears on screen. The screen worker's built-in watch
+# spots it, the voice worker phrases a reminder, and saying yes calls
+# join_meeting with the link read off the banner. Under the eval transport the
+# link is logged, not opened.
+#
+# The turn that shows the notification has no user text: the harness registers
+# the image, the screen worker's next capture picks it up, and the reminder
+# arrives unprompted.
+name: meeting_notification
+turns:
+  - expect:
+      - event: llm_response
+
+  - image: fixtures/notification.png
+    expect:
+      - event: llm_response
+        text_contains: "tandup"
+
+  - user: "Yes, join it."
+    expect:
+      - event: function_call
+        calls:
+          - name: join_meeting
+      - event: llm_response
