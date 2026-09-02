@@ -4,290 +4,880 @@
 <meta charset="utf-8">
 <title>Peekaboo</title>
 <style>
+  /* Tokens from the design canvas (native light). Dark derives from them;
+     the system setting picks one unless data-theme forces it. */
   :root {
-    --accent: #4f46e5; --accent-soft: #eef0fd; --text: #1d1d1f; --muted: #6e6e73;
-    --line: #e5e5ea; --panel: #f5f5f7; --bg: #ffffff; --mark: #fff3a3;
+    --bg: #FFFFFF; --side: #F2F2F5; --panel: #FAFAFC; --stage: #2B2B30;
+    --line: #E3E3E8; --line-soft: #ECECF0; --line-strong: #D9D9DE;
+    --text: #1D1D1F; --text-2: #3B3B40; --muted: #6E6E73; --faint: #9A9AA0;
+    --accent: #3556D6; --accent-dark: #2A45B0; --accent-soft: #E6EAFA; --nav-selected: #DDE3F7;
+    --chip: #F0F0F3; --verb: #4B4B50; --green: #2E8B57; --green-soft: #E1F3E8; --amber: #B7791F; --amber-soft: #FBF0D9;
+    --quiet-a: #E4E4E8; --quiet-b: #FFFFFF; --quiet-line: #D4D4D9;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    color-scheme: light;
   }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --dark: 1; } }
+  :root[data-theme="dark"] { --dark: 1; }
   @media (prefers-color-scheme: dark) {
-    :root { --accent: #7c74f2; --accent-soft: #2a2940; --text: #f2f2f5; --muted: #98989f;
-            --line: #3a3a3f; --panel: #1f1f22; --bg: #161618; --mark: #6b5d1a; }
+    :root:not([data-theme="light"]) {
+      --bg: #1C1C1F; --side: #232327; --panel: #1F1F23; --stage: #101013;
+      --line: #313136; --line-soft: #2A2A2F; --line-strong: #3C3C42;
+      --text: #F2F2F5; --text-2: #C9CCD6; --muted: #98989F; --faint: #6E6E73;
+      --accent: #6E7CEC; --accent-dark: #A9BAFF; --accent-soft: #2A2E45; --nav-selected: #2E3350;
+      --chip: #2A2A30; --verb: #B8BAC4; --green: #5CC489; --green-soft: #1E3328; --amber: #E0B25A; --amber-soft: #3A3020;
+      --quiet-a: #2A2A2F; --quiet-b: #1C1C1F; --quiet-line: #3C3C42;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1C1C1F; --side: #232327; --panel: #1F1F23; --stage: #101013;
+    --line: #313136; --line-soft: #2A2A2F; --line-strong: #3C3C42;
+    --text: #F2F2F5; --text-2: #C9CCD6; --muted: #98989F; --faint: #6E6E73;
+    --accent: #6E7CEC; --accent-dark: #A9BAFF; --accent-soft: #2A2E45; --nav-selected: #2E3350;
+    --chip: #2A2A30; --verb: #B8BAC4; --green: #5CC489; --green-soft: #1E3328; --amber: #E0B25A; --amber-soft: #3A3020;
+    --quiet-a: #2A2A2F; --quiet-b: #1C1C1F; --quiet-line: #3C3C42;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
-  body { font: 13px/1.45 -apple-system, "Instrument Sans", system-ui, sans-serif; color: var(--text);
-         background: var(--bg); display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
-  header { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  header input { flex: 1; font: inherit; font-size: 15px; padding: 9px 12px; border: 1px solid var(--line);
-                 border-radius: 9px; background: var(--panel); color: var(--text); outline: none; }
-  header input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
-           background: var(--panel); color: var(--text); cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: white; }
-  button:disabled { opacity: .5; cursor: default; }
-  main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; min-height: 0; }
-  #left { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-  #answer { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--accent-soft); display: none; }
-  #answer.on { display: block; }
-  #answer .progress { color: var(--muted); font-size: 12px; }
-  #answer .text { margin-top: 6px; font-size: 14px; }
-  #list-head { padding: 8px 16px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-  #list { overflow-y: auto; flex: 1; }
-  .card { display: grid; grid-template-columns: 112px 1fr; gap: 12px; padding: 10px 16px; cursor: pointer;
-          border-bottom: 1px solid var(--line); }
-  .card:hover { background: var(--panel); }
-  .card.selected { background: var(--accent-soft); }
-  .card img { width: 112px; height: 70px; object-fit: cover; border-radius: 6px; background: var(--panel); }
-  .card .when { color: var(--muted); font-size: 12px; }
-  .card .app { font-weight: 600; }
-  .card .title { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .card .snippet { margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
-  #viewer { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
-  #viewer .bar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-  #viewer .bar .meta { flex: 1; min-width: 0; }
-  #viewer .bar .meta b { font-weight: 600; }
-  #viewer .bar .meta span { color: var(--muted); }
-  #frame { min-height: 0; display: grid; grid-template-columns: 1fr 300px; }
-  #frame img { width: 100%; height: 100%; object-fit: contain; background: var(--panel); }
-  #frame .side { padding: 14px 16px; overflow-y: auto; border-left: 1px solid var(--line); }
-  #frame .side h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  #frame .side p { margin: 0 0 14px; }
-  #frame .side ul { margin: 0 0 14px; padding-left: 16px; }
-  #frame .side li { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
-  #empty { display: grid; place-items: center; color: var(--muted); height: 100%; grid-column: 1 / -1; }
-  footer { border-top: 1px solid var(--line); padding: 10px 16px; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
-  #hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 34px; }
-  .hour { position: relative; border-radius: 4px; background: var(--panel); cursor: pointer; overflow: hidden; }
-  .hour .fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); opacity: .85; }
-  .hour.selected { outline: 2px solid var(--accent); }
-  .hour:hover::after { content: attr(data-label); position: absolute; top: 2px; left: 4px; font-size: 10px; color: var(--muted); }
-  #day { min-width: 150px; text-align: center; }
-  kbd { font: inherit; color: var(--muted); }
+  body { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Instrument Sans", system-ui, sans-serif; color: var(--text);
+         background: var(--bg); -webkit-font-smoothing: antialiased; display: flex; overflow: hidden; user-select: none; cursor: default; }
+  input:not([type="checkbox"]), textarea { cursor: text; }
+  a { color: var(--accent); text-decoration: none; } a:hover { color: var(--accent-dark); }
+  .mono { font-family: var(--mono); }
+  .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong);
+         background: var(--bg); color: var(--text); font: inherit; font-weight: 500; font-size: 12.5px; cursor: default; white-space: nowrap; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.small { height: 26px; font-size: 12.5px; }
+  .btn:disabled { opacity: .45; }
+  .icon { width: 16px; height: 16px; flex-shrink: 0; }
+  .appicon { width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0; object-fit: cover; }
+  .appicon.fallback { display: inline-flex; align-items: center; justify-content: center; color: #fff; font: 600 9px var(--mono); }
+
+  /* Sidebar */
+  #side { width: 208px; flex-shrink: 0; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column;
+          padding: 14px 10px; gap: 4px; }
+  #side .lights { height: 30px; }  /* room for the real traffic lights, drawn by the window */
+  .nav { display: flex; align-items: center; gap: 9px; height: 28px; padding: 0 8px; border-radius: 6px; font-weight: 500; color: var(--text); }
+  .nav svg { stroke: var(--muted); }
+  .nav.on { background: var(--nav-selected); color: var(--accent-dark); } .nav.on svg { stroke: currentColor; }
+  .nav .count { margin-left: auto; font: 11px var(--mono); color: var(--muted); } .nav.on .count { color: var(--accent-dark); }
+  #status { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 8px 4px; border-top: 1px solid var(--line); }
+  #status .rec { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); }
+  #status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  #status .dot.paused { background: var(--faint); }
+  #status .stats { font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #status .btn { justify-content: center; height: 26px; }
+
+  /* Main */
+  #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .head { height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 28px; border-bottom: 1px solid var(--line-soft); }
+  .head h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  .head .left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .head .right { display: flex; align-items: center; gap: 8px; }
+  .screen { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .screen.on { display: flex; }
+  .body { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px 28px; display: flex; flex-direction: column; gap: 22px; }
+
+  /* Ask */
+  .askbar { display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 14px 0 12px; border-radius: 10px; border: 1px solid var(--line-strong); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--bg); flex-shrink: 0; }
+  .askbar input { flex: 1; border: 0; outline: 0; font: inherit; font-size: 15px; color: var(--text); background: transparent; user-select: text; }
+  .askbar .chip { font: 11px var(--mono); color: var(--muted); background: var(--chip); border-radius: 5px; padding: 3px 7px; white-space: nowrap; }
+  .answer { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
+  .answer .text { font-size: 15px; line-height: 1.5; user-select: text; }
+  .answer .meta { display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: var(--muted); }
+  .answer .meta .spoken { display: flex; align-items: center; gap: 5px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .memcard { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .memcard .shot { aspect-ratio: 16 / 10; border-radius: 8px; border: 1px solid var(--line); overflow: hidden; background: var(--chip); }
+  .memcard .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .memcard .who { display: flex; align-items: center; gap: 7px; }
+  .memcard .who b { font-weight: 600; }
+  .memcard .who .time { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+  .memcard .title { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .memcard .verbatim { font: 11px/1.5 var(--mono); color: var(--verb); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  mark { background: var(--accent-soft); color: var(--accent-dark); border-radius: 3px; padding: 0 3px; }
+  .section { display: flex; flex-direction: column; gap: 12px; }
+  .empty { color: var(--faint); font-size: 12.5px; }
+
+  /* Viewer */
+  #viewer .head { padding: 0 16px 0 28px; justify-content: flex-start; gap: 14px; }
+  #viewer .who { display: flex; align-items: center; gap: 8px; }
+  #viewer .who b { font-size: 14px; font-weight: 600; }
+  #viewer .who .time { font: 12px var(--mono); color: var(--muted); }
+  #viewer .right { margin-left: auto; }
+  .stage-row { flex: 1; min-height: 0; display: flex; }
+  .stage { flex: 1; min-width: 0; background: var(--stage); display: flex; align-items: center; justify-content: center; padding: 28px; }
+  .stage img { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.4); }
+  .stage .none { color: #9A9AA0; }
+  .side-panel { width: 320px; flex-shrink: 0; border-left: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 18px; padding: 20px; overflow-y: auto; }
+  .side-panel .block { display: flex; flex-direction: column; gap: 4px; }
+  .side-panel .window { font-weight: 500; line-height: 1.4; }
+  .side-panel .desc { color: var(--text-2); line-height: 1.5; user-select: text; }
+  .side-panel .verb { font: 11.5px/1.6 var(--mono); color: var(--verb); display: flex; flex-direction: column; gap: 2px; user-select: text; }
+  .side-panel .verb div { word-break: break-all; }
+  .side-panel .link { font: 11.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .askframe { margin-top: auto; display: flex; align-items: center; gap: 10px; height: 38px; flex-shrink: 0; padding: 0 12px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--faint); }
+  .askframe input { flex: 1; border: 0; outline: 0; font: inherit; background: transparent; color: var(--text); user-select: text; }
+  .strip { height: 92px; flex-shrink: 0; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 6px; padding: 10px 20px 8px; }
+  .strip .tiles { display: flex; align-items: flex-end; gap: 4px; height: 40px; overflow: hidden; }
+  .tile { width: 60px; height: 38px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(0,0,0,.12); background-size: cover; background-position: top; }
+  .tile.on { height: 40px; border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .strip .labels { display: flex; justify-content: space-between; font: 10.5px var(--mono); color: var(--muted); }
+  .strip .labels .now { color: var(--accent-dark); font-weight: 500; }
+
+  /* Timeline */
+  .daypick { display: flex; align-items: center; border: 1px solid var(--line-strong); border-radius: 6px; height: 26px; overflow: hidden; }
+  .daypick .arrow { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; }
+  .daypick .label { padding: 0 12px; font-weight: 500; font-size: 12.5px; border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong); }
+  .legend { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-2); }
+  .legend .key { display: flex; align-items: center; gap: 5px; } .legend .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .tl-head, .tl-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 96px; gap: 16px; align-items: center; }
+  .tl-head { font: 10.5px var(--mono); color: var(--faint); padding-bottom: 8px; }
+  .tl-head .ticks { display: flex; justify-content: space-between; }
+  .tl-row { padding: 10px 0; border-top: 1px solid var(--line-soft); }
+  #rows .tl-row:last-child { border-bottom: 1px solid var(--line-soft); }
+  .tl-row .hour { font: 12px var(--mono); color: var(--text-2); }
+  .tl-row .track { height: 56px; position: relative; border-radius: 4px;
+                   background: repeating-linear-gradient(135deg, var(--quiet-a) 0 4px, var(--quiet-b) 4px 8px); border: 1px solid var(--quiet-line); }
+  /* A block is one or more whole minutes coloured by the app seen most in
+     them, so it is never narrower than a minute however apps alternate. */
+  .tl-row .seg { position: absolute; top: -1px; bottom: -1px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
+  .tl-row .seg.mixed::after { content: ""; position: absolute; inset: 0; border-radius: 4px; background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255,255,255,.28) 6px 8px); pointer-events: none; }
+  .tl-row .seg.on { box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px var(--accent-soft); z-index: 1; }
+  .tl-row .track .quietlabel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font: 10px var(--mono); color: var(--muted); background: var(--bg); padding: 1px 5px; border-radius: 3px; }
+  .legend .more { color: var(--muted); }
+  .legend .key .n { font: 10.5px var(--mono); color: var(--faint); }
+  .tl-row .marker { position: absolute; top: -6px; bottom: -6px; width: 2px; background: var(--accent); border-radius: 1px; pointer-events: none; }
+  .tl-row .marker.hover { background: var(--accent-dark); opacity: .55; }
+  .tl-row .track { cursor: crosshair; }
+  .tl-row .marker-label { position: absolute; top: -22px; transform: translateX(-50%); font: 500 10px var(--mono); color: var(--accent-dark); background: var(--bg); padding: 0 4px; pointer-events: none; }
+  .tl-row .count { font: 12px var(--mono); color: var(--muted); text-align: right; }
+  .tlstrip { display: flex; gap: 8px; padding: 16px 0 0; overflow-x: auto; }
+  .tlstrip .frame { flex-shrink: 0; width: 132px; display: flex; flex-direction: column; gap: 4px; }
+  .tlstrip .frame .img { aspect-ratio: 16 / 10; border-radius: 6px; border: 1px solid var(--line); overflow: hidden; background: var(--chip); }
+  .tlstrip .frame.on .img { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .tlstrip .frame .img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tlstrip .frame .t { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-2); min-width: 0; }
+  .tlstrip .frame .t b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tlstrip .frame .t .appicon { width: 14px; height: 14px; border-radius: 4px; }
+  .tlstrip .frame .t .appicon.fallback { font-size: 8px; }
+  .tlstrip .frame .when { font: 10.5px var(--mono); color: var(--muted); }
+  .preview { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+  .preview .thumb { width: 132px; aspect-ratio: 16 / 10; border-radius: 6px; border: 2px solid var(--accent); overflow: hidden; background: var(--chip); flex-shrink: 0; }
+  .preview .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .preview .lines { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .preview .top { display: flex; align-items: center; gap: 8px; } .preview .top b { font-weight: 600; } .preview .top .time { font: 11px var(--mono); color: var(--muted); }
+  .preview .title { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .preview .hint { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+  /* Watchers */
+  .wrow { display: flex; align-items: center; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line-soft); }
+  .wrow .bigicon { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: #fff; font: 600 11px var(--mono); object-fit: cover; }
+  .wrow .what { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .wrow .what .top { display: flex; align-items: center; gap: 8px; } .wrow .what .top b { font-weight: 600; }
+  .wrow .what .top span { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wrow .what .cond { color: var(--text-2); }
+  .wrow .state { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font: 11px var(--mono); border-radius: 999px; padding: 3px 9px; }
+  .pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.green { color: var(--green); background: var(--green-soft); }
+  .pill.amber { color: var(--amber); background: var(--amber-soft); }
+  .pill.indigo { color: var(--accent-dark); background: var(--accent-soft); }
+  .wrow .sub { font: 10.5px var(--mono); color: var(--faint); }
+  .wrow .toggle { width: 16px; height: 16px; accent-color: var(--accent); margin: 0 4px 0 0; flex-shrink: 0; }
+  .wrow.off .what, .wrow.off .bigicon, .wrow.off .state { opacity: .45; }
+  .wrow .remove { width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; color: #D9433B; flex-shrink: 0; }
+  .wrow .remove:hover { background: rgba(217, 67, 59, .1); }
+  .wrow .remove.builtin { visibility: hidden; }
+  .wsplit { flex: 1; min-height: 0; display: flex; }
+  .wlist { flex: 1; min-width: 0; padding: 8px 28px; overflow-y: auto; }
+  .slist { flex: 1; min-height: 0; padding: 8px 28px 28px; overflow-y: auto; }
+  .headfilter { width: 240px; }
+  .sday { margin: 18px 0 6px; }
+  .srow { display: flex; align-items: flex-start; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+  .srow:hover { background: var(--hover, rgba(0,0,0,.025)); margin: 0 -12px; padding-left: 12px; padding-right: 12px; border-radius: 8px; }
+  .srow .when { font: 11.5px var(--mono); color: var(--muted); width: 44px; flex-shrink: 0; padding-top: 2px; }
+  .srow .what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .srow .q { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .srow .q .src { font: 10.5px var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+  .srow .a { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srow .remove { width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; color: #D9433B; flex-shrink: 0; opacity: 0; }
+  .srow:hover .remove { opacity: 1; } .srow .remove:hover { background: rgba(217, 67, 59, .1); }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  .newpanel { width: 360px; flex-shrink: 0; border-left: 1px solid var(--line-soft); background: var(--panel); display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; overflow: hidden; }
+  .newpanel h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .filter { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--faint); }
+  .filter input { flex: 1; border: 0; outline: 0; font: inherit; background: transparent; color: var(--text); user-select: text; }
+  .picker { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); overflow-y: auto; font-size: 12.5px; max-height: 230px; }
+  .picker .app { display: flex; align-items: center; gap: 8px; height: 28px; flex-shrink: 0; padding: 0 10px; font-weight: 600; border-top: 1px solid var(--line-soft); }
+  .picker .app:first-child { border-top: 0; }
+  .picker .app .n { margin-left: auto; font: 10.5px var(--mono); color: var(--faint); }
+  .picker .win { display: flex; align-items: center; height: 26px; flex-shrink: 0; padding: 0 10px 0 34px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .picker .sel { background: var(--accent); color: #fff; }
+  .picker .app.sel .n { color: #fff; }
+  .picker .app .appicon { width: 16px; height: 16px; border-radius: 4px; }
+  .newpanel .hint { font-size: 11.5px; color: var(--faint); }
+  .newpanel textarea { min-height: 40px; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--bg); font: inherit; resize: none; outline: 0; user-select: text; }
+  .newpanel .start { margin-top: auto; height: 32px; justify-content: center; }
+
+  /* Settings */
+  .setting { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--line-soft); max-width: 720px; }
+  .setting .label { font-weight: 500; } .setting .help { font-size: 12px; color: var(--muted); }
+  .seg { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; font-size: 12px; }
+  .seg span { padding: 4px 12px; } .seg span.on { background: var(--accent); color: #fff; font-weight: 500; }
+  .check { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; flex-shrink: 0; }
 </style>
 </head>
 <body>
-<header>
-  <input id="q" placeholder="Ask about anything you saw, or search a word…" autofocus>
-  <button id="ask" class="primary">Ask</button>
-  <button id="watchers" title="What is being watched">Watchers</button>
-</header>
-<main>
-  <section id="left">
-    <div id="answer"><div class="progress"></div><div class="text"></div></div>
-    <div id="list-head">Recent</div>
-    <div id="list"></div>
-  </section>
-  <section id="viewer">
-    <div class="bar">
-      <button id="prev" title="Earlier (←)">‹</button>
-      <button id="next" title="Later (→)">›</button>
-      <div class="meta" id="meta"><span>Pick a memory</span></div>
+<nav id="side" data-drag>
+  <div class="lights"></div>
+  <div class="nav on" data-screen="ask">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5z"/></svg><span>Ask</span>
+  </div>
+  <div class="nav" data-screen="searches">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span>Searches</span>
+  </div>
+  <div class="nav" data-screen="timeline">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Timeline</span>
+  </div>
+  <div class="nav" data-screen="watchers">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span>Watchers</span><span class="count" id="wcount"></span>
+  </div>
+  <div class="nav" data-screen="settings">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h8M18 6h2M4 12h2M12 12h8M4 18h10M20 18h0"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span>
+  </div>
+  <div id="status">
+    <div class="rec"><div class="dot" id="recdot"></div><span id="rectext">Recording</span></div>
+    <div class="stats" id="stats">…</div>
+    <button class="btn" id="pause">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 5v14M16 5v14"/></svg><span>Pause</span>
+    </button>
+  </div>
+</nav>
+
+<div id="main">
+  <!-- Ask -->
+  <section class="screen on" id="ask">
+    <div class="head" data-drag><h1>Ask</h1><div class="right"><button class="btn small" id="askclear" hidden>Clear</button></div></div>
+    <div class="body">
+      <div class="askbar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3556D6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        <input id="q" placeholder="What was the PR I looked at this morning?" autofocus>
+        <span class="chip" id="askchip" hidden></span>
+      </div>
+      <div class="answer" id="answer" hidden>
+        <div class="text" id="answertext"></div>
+        <div class="meta" id="answermeta"></div>
+      </div>
+      <div class="section" id="drew" hidden>
+        <div class="eyebrow">Memories it drew on</div>
+        <div class="grid" id="drewgrid"></div>
+      </div>
+      <div class="section" id="matches">
+        <div class="eyebrow" id="matchhead">Recent</div>
+        <div class="grid" id="matchgrid"></div>
+      </div>
     </div>
-    <div id="frame"><div id="empty">Nothing selected. <kbd>←</kbd> <kbd>→</kbd> step through neighbouring frames.</div></div>
   </section>
-</main>
-<footer>
-  <button id="prevday">‹</button>
-  <div id="hours"></div>
-  <div style="display:flex;align-items:center;gap:8px"><span id="day"></span><button id="nextday">›</button></div>
-</footer>
+
+  <!-- Viewer -->
+  <section class="screen" id="viewer">
+    <div class="head" data-drag>
+      <span class="btn small" id="back"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span id="backlabel">Ask</span></span>
+      <div class="who" id="vwho"></div>
+      <div class="right"><button class="btn primary" id="openlink" hidden>Open link</button></div>
+    </div>
+    <div class="stage-row">
+      <div class="stage" id="stage"><div class="none">Pick a memory</div></div>
+      <div class="side-panel">
+        <div class="block"><div class="eyebrow">Window</div><div class="window" id="vwindow"></div></div>
+        <div class="block"><div class="eyebrow">What was on screen</div><div class="desc" id="vdesc"></div></div>
+        <div class="block" id="vverbblock"><div class="eyebrow">Verbatim text</div><div class="verb" id="vverb"></div></div>
+        <div class="block" id="vlinkblock" hidden><div class="eyebrow">Link seen</div><a class="link" id="vlink" href="#"></a></div>
+        <div class="askframe">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#6E6E73" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5z"/></svg>
+          <input id="askframe" placeholder="Ask about this frame…">
+        </div>
+      </div>
+    </div>
+    <div class="strip">
+      <div class="tiles" id="tiles"></div>
+      <div class="labels" id="striplabels"></div>
+    </div>
+  </section>
+
+  <!-- Timeline -->
+  <section class="screen" id="timeline">
+    <div class="head" data-drag>
+      <div class="left"><h1>Timeline</h1>
+        <div class="daypick"><span class="arrow" id="prevday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></span><span class="label" id="daylabel"></span><span class="arrow" id="nextday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="body" style="gap:0">
+      <div class="tl-head"><div></div><div class="ticks"><span>:00</span><span>:15</span><span>:30</span><span>:45</span><span></span></div><div style="text-align:right">memories</div></div>
+      <div id="rows"></div>
+      <div class="tlstrip" id="tlstrip" hidden></div>
+      <div class="preview" id="preview" hidden></div>
+    </div>
+  </section>
+
+  <!-- Watchers -->
+  <!-- Searches: every question asked, typed or spoken, with its answer -->
+  <section class="screen" id="searches">
+    <div class="head" data-drag><h1>Searches</h1><div class="right"><div class="filter headfilter"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9A9AA0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="sfilter" placeholder="Filter searches"></div></div></div>
+    <div class="slist" id="slist"></div>
+  </section>
+
+  <section class="screen" id="watchers">
+    <div class="head" data-drag><h1>Watchers</h1><div class="right"><button class="btn primary" id="newwatch">New watcher</button></div></div>
+    <div class="wsplit">
+      <div class="wlist" id="wlist"></div>
+      <div class="newpanel" id="newpanel">
+        <h2>New watcher</h2>
+        <div class="field">
+          <div class="eyebrow">Watch</div>
+          <div class="filter"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9A9AA0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="wfilter" placeholder="Filter apps and windows"></div>
+          <div class="picker" id="picker"></div>
+          <div class="hint">Pick an app to include windows it opens later.</div>
+        </div>
+        <div class="field"><div class="eyebrow">Tell me when</div><textarea id="wcond" placeholder="the build finishes or fails"></textarea></div>
+        <button class="btn primary start" id="startwatch">Start watching</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Settings -->
+  <section class="screen" id="settings">
+    <div class="head" data-drag><h1>Settings</h1></div>
+    <div class="body">
+      <div class="setting">
+        <div><div class="label">Appearance</div><div class="help">System follows macOS; Light and Dark force one.</div></div>
+        <div class="seg" id="themeseg"><span data-v="system">System</span><span data-v="light">Light</span><span data-v="dark">Dark</span></div>
+      </div>
+      <div class="setting">
+        <div><div class="label">Start recording when Peekaboo launches</div><div class="help">Otherwise recording waits for the menu, the button below, or "start recording" aloud.</div></div>
+        <input type="checkbox" id="recordlaunch" class="check">
+      </div>
+      <div class="empty">Exclusions, retention, and model tiers arrive with M6.</div>
+    </div>
+  </section>
+</div>
 
 <script>
 // ---- bridge -----------------------------------------------------------
-const pending = new Map();
-let seq = 0;
+const pending = new Map(); let seq = 0;
 function call(method, params = {}) {
   return new Promise((resolve, reject) => {
-    const id = ++seq;
-    pending.set(id, { resolve, reject });
+    const id = ++seq; pending.set(id, { resolve, reject });
     window.webkit.messageHandlers.peekaboo.postMessage({ id, method, params });
   });
 }
-window.peekaboo = {
-  receive(msg) {
-    if (msg.event === "result") {
-      const p = pending.get(msg.payload.id);
-      if (!p) return;
-      pending.delete(msg.payload.id);
-      msg.payload.error ? p.reject(new Error(msg.payload.error)) : p.resolve(msg.payload.result);
-      return;
-    }
-    handle(msg.event, msg.payload);
-  },
-};
+window.peekaboo = { receive(msg) {
+  if (msg.event === "result") { const p = pending.get(msg.payload.id); if (!p) return; pending.delete(msg.payload.id);
+    msg.payload.error ? p.reject(new Error(msg.payload.error)) : p.resolve(msg.payload.result); return; }
+  handle(msg.event, msg.payload);
+} };
+
+// ---- helpers ----------------------------------------------------------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const STOP = new Set("the a an and or of to in on at for from with was were is are be been my me i it this that what when where how did do does around about looked look see saw".split(" "));
+const keywords = (q) => q.toLowerCase().split(/[^\p{L}\p{N}_./-]+/u).filter((t) => t.length >= 3 && !STOP.has(t));
+let terms = [];
+function hi(s) { let out = esc(s); for (const t of terms) out = out.replace(new RegExp("(" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig"), "<mark>$1</mark>"); return out; }
+const pad = (n) => String(n).padStart(2, "0");
+const hhmm = (ts) => { const d = new Date(ts * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const hhmmss = (ts) => { const d = new Date(ts * 1000); return `${hhmm(ts)}:${pad(d.getSeconds())}`; };
+const dayISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const sameDay = (ts) => dayISO(new Date(ts * 1000)) === dayISO(new Date());
+const whenLabel = (ts) => (sameDay(ts) ? "Today " : new Date(ts * 1000).toLocaleDateString([], { weekday: "short" }) + " ") + hhmmss(ts);
+const URL_RE = /https?:\/\/[^\s"')]+|(?:[a-z0-9-]+\.)+(?:com|org|net|io|dev|ai|co)(?:\/[^\s"')]*)?/i;
+const linkOf = (o) => { for (const t of [...(o.verbatim_text || []), o.title || ""]) { const m = String(t).match(URL_RE); if (m) return m[0]; } return null; };
+
+// App colours: the design's palette for known apps, a stable pick otherwise.
+const APP_COLORS = { safari: "#9DBCF5", chrome: "#F5B87A", terminal: "#3B3B40", ghostty: "#3B3B40", iterm: "#3B3B40", xcode: "#7FC7A6", code: "#7FC7A6", slack: "#D3A7DD", discord: "#A9B4F0", finder: "#9DBCF5" };
+const PALETTE = ["#9DBCF5", "#7FC7A6", "#D3A7DD", "#F5B87A", "#A9B4F0", "#F0A3A3", "#8ED1D6"];
+function appColor(app) {
+  const a = (app || "screen").toLowerCase();
+  for (const k in APP_COLORS) if (a.includes(k)) return APP_COLORS[k];
+  let h = 0; for (const c of a) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length];
+}
+const icons = {};  // app name -> data url, from the registry
+function appIcon(app, cls = "appicon") {
+  const src = icons[app];
+  if (src) return `<img class="${cls}" src="${src}" alt="">`;
+  return `<span class="${cls} fallback" style="background:${appColor(app)}">${esc((app || "S").slice(0, 1).toUpperCase())}</span>`;
+}
+async function loadIcons(items) {
+  const names = [...new Set(items.map((o) => o.app).filter((a) => a && !(a in icons)))];
+  if (!names.length) return;
+  const got = await call("app_icons", { names });
+  for (const n of names) if (got[n]) icons[n] = got[n];  // misses are retried later
+}
 
 // ---- state ------------------------------------------------------------
-const $ = (s) => document.querySelector(s);
-let items = [];          // the list on the left, newest first
-let selected = null;     // observation in the viewer
-let terms = [];          // highlighted words
-const STOP = new Set("the a an and or of to in on at for from with was were is are be been my me i it this that what when where how did do does around about".split(" "));
-function keywords(q) { return q.toLowerCase().split(/[^\p{L}\p{N}_./-]+/u).filter((t) => t.length >= 3 && !STOP.has(t)); }
-let day = todayISO();
-let hour = null;
+let screen = "ask";
+let lastScreen = "ask";
+let strip = [];          // observations in the viewer's filmstrip, oldest first
+let current = null;      // observation in the viewer
+let day = dayISO(new Date());
+let tlSelected = null;   // {ts, id} marker on the timeline
+let watchers = [];
+let paused = false;
+let pickerSel = null;    // {app, title} chosen in the new-watcher panel
+let playing = null;
 
-function todayISO() { const d = new Date(); return d.toISOString().slice(0, 10); }
-function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function hi(s) {
-  let out = esc(s);
-  for (const t of terms) {
-    if (t.length < 2) continue;
-    out = out.replace(new RegExp("(" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig"), "<mark>$1</mark>");
-  }
-  return out;
+function show(name) {
+  if (name === "searches") loadSearches();
+  if (name !== "viewer") lastScreen = name;
+  screen = name;
+  document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.id === name));
+  document.querySelectorAll(".nav").forEach((n) => n.classList.toggle("on", n.dataset.screen === (name === "viewer" ? lastScreen : name)));
+  if (name === "timeline") loadDay();
+  if (name === "watchers") { loadWatchers(); loadPicker(); }
 }
-function when(o) { return new Date(o.ts * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
+document.querySelectorAll(".nav").forEach((n) => (n.onclick = () => show(n.dataset.screen)));
 
-// ---- list -------------------------------------------------------------
-function renderList(head) {
-  $("#list-head").textContent = head;
-  const list = $("#list");
-  list.innerHTML = "";
-  for (const o of items) {
-    const card = document.createElement("div");
-    card.className = "card" + (selected && selected.id === o.id ? " selected" : "");
-    card.innerHTML = `
-      ${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : `<div></div>`}
-      <div>
-        <div class="when">${when(o)}</div>
-        <div class="app">${esc(o.app || "Screen")}</div>
-        <div class="title">${esc(o.title || "")}</div>
-        <div class="snippet">${hi(o.content)}</div>
-      </div>`;
-    card.dataset.id = o.id;
-    card.onclick = () => select(o);
-    list.appendChild(card);
-  }
-  if (!items.length) list.innerHTML = `<div style="padding:16px;color:var(--muted)">Nothing here.</div>`;
+// ---- memory cards -----------------------------------------------------
+const cardData = new WeakMap();
+function card(o) {
+  const el = document.createElement("div");
+  el.className = "memcard";
+  const verb = (o.verbatim_text || []).slice(0, 3).join(" · ");
+  el.innerHTML = `
+    <div class="shot">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
+    <div class="who">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${hhmm(o.ts)}</span></div>
+    <div class="title">${esc(o.title || o.content.split(".")[0])}</div>
+    <div class="verbatim">${hi(verb || o.content)}</div>`;
+  el.onclick = () => openViewer(o, cardsIn(el.parentNode));
+  return el;
+}
+function fillGrid(grid, items) {
+  grid.innerHTML = "";
+  if (!items.length) { grid.innerHTML = `<div class="empty">Nothing here.</div>`; return; }
+  for (const o of items) { const c = card(o); cardData.set(c, o); grid.appendChild(c); }
+}
+function cardsIn(grid) { return [...grid.querySelectorAll(".memcard")].map((c) => cardData.get(c)).filter(Boolean); }
+
+// ---- ask --------------------------------------------------------------
+async function ask(q, { chip } = {}) {
+  q = q.trim(); if (!q) return;
+  show("ask");
+  $("#q").value = q;
+  terms = keywords(q);
+  $("#askchip").textContent = chip || `typed · ${hhmm(Date.now() / 1000)}`; $("#askchip").hidden = false;
+  $("#answer").hidden = false; $("#answertext").textContent = ""; $("#answermeta").innerHTML = `<span>Searching…</span>`;
+  $("#drew").hidden = true; $("#askclear").hidden = false;
+  const hits = await call("search", { query: q, limit: 9 });
+  await loadIcons(hits);
+  $("#matchhead").textContent = hits.length ? `Matching “${q}”` : `Nothing matching “${q}” by keyword`;
+  fillGrid($("#matchgrid"), hits);
+  await call("ask", { question: q });
+}
+$("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") ask($("#q").value); else if (e.key === "Escape") clearAsk(); });
+// Back to the plain Ask screen: no question, no answer, Recent below.
+function clearAsk() {
+  $("#q").value = ""; terms = [];
+  $("#askchip").hidden = true; $("#answer").hidden = true; $("#drew").hidden = true; $("#askclear").hidden = true;
+  showRecent();
+}
+$("#askclear").onclick = clearAsk;
+$("#askframe").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && current) { const q = e.target.value.trim(); e.target.value = ""; if (q) ask(`About what was on screen at ${hhmm(current.ts)} in ${current.app || "the screen"}: ${q}`); }
+});
+
+async function showRecent() {
+  const recent = await call("recent", { limit: 9 });
+  await loadIcons(recent);
+  $("#matchhead").textContent = "Recent";
+  fillGrid($("#matchgrid"), recent);
 }
 
 // ---- viewer -----------------------------------------------------------
-function select(o) {
-  selected = o;
-  document.querySelectorAll(".card").forEach((c) => c.classList.toggle("selected", Number(c.dataset.id) === o.id));
-  $("#meta").innerHTML = `<b>${esc(o.app || "Screen")}</b> <span>${esc(o.title || "")}</span><br><span>${when(o)}</span>`;
-  const verbatim = (o.verbatim_text || []).map((t) => `<li>${hi(t)}</li>`).join("");
-  $("#frame").innerHTML = `
-    ${o.screenshot_url ? `<img src="${o.screenshot_url}" alt="">` : `<div id="empty">The screenshot for this memory has been pruned.</div>`}
-    <div class="side">
-      <h4>What was on screen</h4><p>${hi(o.content)}</p>
-      ${verbatim ? `<h4>Verbatim</h4><ul>${verbatim}</ul>` : ""}
-    </div>`;
+async function openViewer(o, context) {
+  current = o;
+  show("viewer");
+  $("#backlabel").textContent = { ask: "Ask", timeline: "Timeline", watchers: "Watchers", settings: "Settings" }[lastScreen] || "Back";
+  strip = context && context.length > 1 ? [...context].sort((a, b) => a.ts - b.ts) : await call("around", { id: o.id, n: 8 });
+  await loadIcons(strip);
+  render();
+}
+function render() {
+  const o = current; if (!o) return;
+  $("#vwho").innerHTML = `${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${whenLabel(o.ts)}</span>`;
+  $("#stage").innerHTML = o.screenshot_url ? `<img src="${o.screenshot_url}" alt="">` : `<div class="none">The screenshot for this memory has been pruned.</div>`;
+  $("#vwindow").textContent = o.title || "—";
+  $("#vdesc").innerHTML = hi(o.content);
+  const verb = o.verbatim_text || [];
+  $("#vverbblock").hidden = !verb.length;
+  $("#vverb").innerHTML = verb.map((t) => `<div>${hi(t)}</div>`).join("");
+  const link = linkOf(o);
+  $("#vlinkblock").hidden = !link; $("#openlink").hidden = !link;
+  if (link) { $("#vlink").textContent = link; $("#vlink").onclick = (e) => { e.preventDefault(); call("open_url", { url: link }); }; $("#openlink").onclick = () => call("open_url", { url: link }); }
+  const tiles = $("#tiles"); tiles.innerHTML = "";
+  for (const s of strip) {
+    const t = document.createElement("div");
+    t.className = "tile" + (s.id === o.id ? " on" : "");
+    t.style.background = s.thumbnail_url ? `url("${s.thumbnail_url}") top / cover` : appColor(s.app);
+    t.title = `${s.app || "Screen"} · ${hhmmss(s.ts)}`;
+    t.onclick = () => { current = s; render(); };
+    tiles.appendChild(t);
+  }
+  const first = strip[0], last = strip[strip.length - 1];
+  $("#striplabels").innerHTML = first ? `<span>${hhmm(first.ts)}</span><span class="now">${hhmmss(o.ts)}</span><span>${hhmm(last.ts)}</span><span>← → step frames · space to play</span>` : "";
+  const on = tiles.querySelector(".tile.on"); if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
 }
 function step(delta) {
-  if (!selected) return;
-  const i = items.findIndex((o) => o.id === selected.id);
+  if (!current) return;
+  const i = strip.findIndex((s) => s.id === current.id);
   const j = i + delta;
-  if (j >= 0 && j < items.length) select(items[j]);
+  if (j >= 0 && j < strip.length) { current = strip[j]; render(); }
 }
-// items are newest first: "earlier" is +1, "later" is -1
-$("#prev").onclick = () => step(1);
-$("#next").onclick = () => step(-1);
+$("#back").onclick = () => { stopPlay(); show(lastScreen); };
+function stopPlay() { if (playing) { clearInterval(playing); playing = null; } }
 document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT") return;
-  if (e.key === "ArrowLeft") step(1);
-  if (e.key === "ArrowRight") step(-1);
-});
-
-// ---- ask and search ---------------------------------------------------
-async function submit() {
-  const q = $("#q").value.trim();
-  if (!q) return;
-  terms = keywords(q);
-  const answer = $("#answer");
-  answer.classList.add("on");
-  answer.querySelector(".progress").textContent = "Searching…";
-  answer.querySelector(".text").textContent = "";
-  $("#ask").disabled = true;
-  // Keyword hits right away; the model's answer streams in through events.
-  items = await call("search", { query: q, limit: 30 });
-  renderList(`Matches for “${q}”`);
-  if (items.length) select(items[0]);
-  await call("ask", { question: q });
-}
-$("#ask").onclick = submit;
-$("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
-
-function handle(event, payload) {
-  if (event === "ask.progress") {
-    $("#answer .progress").textContent = payload.text;
-  } else if (event === "ask.answer") {
-    $("#answer .progress").textContent = payload.ok === false ? "Couldn't finish." : "Answer";
-    $("#answer .text").textContent = payload.answer || "";
-    $("#ask").disabled = false;
-    if (payload.observations && payload.observations.length) {
-      items = payload.observations;
-      renderList("The memories behind the answer");
-      select(items[0]);
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (screen === "viewer") {
+    if (e.key === "ArrowLeft") step(-1);
+    if (e.key === "ArrowRight") step(1);
+    if (e.key === " ") { e.preventDefault(); playing ? stopPlay() : (playing = setInterval(() => { const i = strip.findIndex((s) => s.id === current.id); if (i + 1 >= strip.length) stopPlay(); else step(1); }, 600)); }
+    if (e.key === "Escape") { stopPlay(); show(lastScreen); }
+  } else if (screen === "timeline") {
+    if (e.key === "Enter" && tlSelected) openStrip();
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && stripItems.length) {
+      const i = stripItems.findIndex((o) => o.id === tlSelected.id); const j = i + (e.key === "ArrowRight" ? 1 : -1);
+      if (j >= 0 && j < stripItems.length) { tlSelected = stripItems[j]; renderStrip(); }
     }
-  } else if (event === "show") {
-    call("get", { ids: payload.ids }).then((obs) => {
-      if (!obs.length) return;
-      terms = [];
-      items = obs;
-      renderList("Show me");
-      select(obs[0]);
-    });
-  } else if (event === "watchers") {
-    showWatchers(payload.watchers);
   }
-}
-
-$("#watchers").onclick = async () => {
-  const r = await call("watchers", {});
-  showWatchers(r.watchers || []);
-};
-function showWatchers(watchers) {
-  const answer = $("#answer");
-  answer.classList.add("on");
-  answer.querySelector(".progress").textContent = watchers.length ? "Watching" : "Nothing is being watched";
-  answer.querySelector(".text").innerHTML = watchers.map((w) =>
-    `<div>${esc(w.target)}: ${esc(w.condition)} <button data-id="${w.id}" style="padding:2px 8px;margin-left:6px">Stop</button></div>`).join("");
-  answer.querySelectorAll("button[data-id]").forEach((b) => (b.onclick = async () => {
-    await call("unwatch", { id: Number(b.dataset.id) });
-    $("#watchers").click();
-  }));
-}
+});
 
 // ---- timeline ---------------------------------------------------------
 async function loadDay() {
-  const cov = await call("day", { date: day });
-  $("#day").textContent = new Date(day + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
-  const max = Math.max(1, ...cov.hours.map((h) => h.count));
-  const hours = $("#hours");
-  hours.innerHTML = "";
-  for (let h = 0; h < 24; h++) {
-    const c = cov.hours.find((x) => x.hour === h)?.count || 0;
-    const cell = document.createElement("div");
-    cell.className = "hour" + (hour === h ? " selected" : "");
-    cell.dataset.label = `${String(h).padStart(2, "0")}:00 · ${c}`;
-    cell.innerHTML = `<div class="fill" style="height:${Math.round((c / max) * 100)}%"></div>`;
-    cell.onclick = () => loadHour(h);
-    hours.appendChild(cell);
+  const d = new Date(day + "T12:00:00");
+  const today = dayISO(new Date()) === day;
+  $("#daylabel").textContent = (today ? "Today, " : "") + d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  $("#nextday").style.opacity = today ? .4 : 1;
+  const [tracks, frames] = await Promise.all([call("day_tracks", { date: day }), call("day_frames", { date: day })]);
+  dayFrames = frames;
+  const rows = $("#rows"); rows.innerHTML = "";
+  const apps = new Map();
+  const hours = tracks.hours.filter((h) => h.count > 0);
+  const range = hours.length ? [Math.min(...hours.map((h) => h.hour)), Math.max(...hours.map((h) => h.hour))] : [9, 17];
+  dayTracks = tracks;
+  for (let h = range[0]; h <= range[1]; h++) {
+    const row = tracks.hours.find((x) => x.hour === h) || { hour: h, count: 0, minutes: [], start: 0 };
+    row.blocks = blocksOf(row);
+    const el = document.createElement("div"); el.className = "tl-row";
+    let inner = row.blocks.length ? "" : `<span class="quietlabel">quiet</span>`;
+    for (const b of row.blocks) {
+      const others = Object.keys(b.apps).filter((a) => a !== b.app);
+      const label = `${esc(b.app)}${others.length ? ` (mostly) · also ${esc(others.join(", "))}` : ""} · ${b.ids.length} ${b.ids.length === 1 ? "memory" : "memories"} · ${pad(row.hour)}:${pad(b.from)}–${pad(row.hour)}:${pad(b.to + 1)}`;
+      inner += `<div class="seg${others.length ? " mixed" : ""}" data-key="${b.from}" style="left:${(b.from / 60) * 100}%;width:${((b.to - b.from + 1) / 60) * 100}%;background:${appColor(b.app)}" title="${label}"></div>`;
+    }
+    el.innerHTML = `<div class="hour">${pad(row.hour)}:00</div><div class="track" data-hour="${h}">${inner}</div><div class="count">${row.count}</div>`;
+    const track = el.querySelector(".track");
+    row.frames = dayFrames.filter((o) => o.ts >= row.start && o.ts < row.start + 3600);
+    track.onclick = (e) => scrub(row, e);
+    track.ondblclick = () => tlSelected && openStrip();
+    track.onmousemove = (e) => hover(row, e);
+    track.onmouseleave = () => {
+      track.querySelectorAll(".marker.hover, .marker-label.hover").forEach((m) => m.remove());
+      if (tlSelected) renderStrip(); else $("#preview").hidden = true;
+    };
+    rows.appendChild(el);
+  }
+  for (const a of tracks.apps) apps.set(a.app, { color: appColor(a.app), count: a.count });
+  const shown = [...apps].slice(0, MAX_LEGEND), hidden = apps.size - shown.length;
+  $("#legend").innerHTML = shown.map(([a, v]) => `<div class="key" title="${v.count} memories"><div class="sw" style="background:${v.color}"></div><span>${esc(a)}</span><span class="n">${v.count}</span></div>`).join("")
+    + (hidden > 0 ? `<span class="more">+${hidden} more</span>` : "")
+    + `<div class="key"><div class="sw" style="background:repeating-linear-gradient(135deg,var(--quiet-a) 0 3px,var(--quiet-b) 3px 6px);border:1px solid var(--quiet-line)"></div><span>Quiet</span></div>`;
+  if (tlSelected && dayISO(new Date(tlSelected.ts * 1000)) !== day) { tlSelected = null; stripItems = []; renderStrip(); }
+}
+let dayTracks = null;
+let stripItems = [];     // the clicked block's memories, oldest first
+let stripBlock = null;   // the block they came from
+let dayFrames = [];      // every memory of the shown day, oldest first
+let hoverRaf = 0;
+const MAX_LEGEND = 6;
+
+// The memory nearest a time, by binary search over frames sorted by time.
+function nearestFrame(ts, frames) {
+  if (!frames.length) return null;
+  let lo = 0, hi = frames.length - 1;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (frames[mid].ts < ts) lo = mid + 1; else hi = mid; }
+  const a = frames[lo], b = frames[lo - 1];
+  return b && Math.abs(b.ts - ts) < Math.abs(a.ts - ts) ? b : a;
+}
+
+// Consecutive minutes with the same dominant app become one block. Each
+// block keeps every memory in its minutes, whatever the app.
+function blocksOf(row) {
+  const blocks = [];
+  for (const m of row.minutes || []) {
+    const last = blocks[blocks.length - 1];
+    if (last && last.app === m.app && m.minute === last.to + 1) {
+      last.to = m.minute; last.ids.push(...m.ids);
+      for (const [a, n] of Object.entries(m.apps)) last.apps[a] = (last.apps[a] || 0) + n;
+    } else {
+      blocks.push({ app: m.app, from: m.minute, to: m.minute, ids: [...m.ids], apps: { ...m.apps } });
+    }
+  }
+  return blocks;
+}
+
+// Moving along a track scrubs: the preview follows the frame nearest the
+// mouse within that hour, like a video scrubber. A click pins.
+function hover(row, e) {
+  if (hoverRaf) return;
+  const track = e.currentTarget, clientX = e.clientX;
+  hoverRaf = requestAnimationFrame(() => {
+    hoverRaf = 0;
+    const rect = track.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const o = nearestFrame(row.start + frac * 3600, row.frames || []);
+    track.querySelectorAll(".marker.hover, .marker-label.hover").forEach((m) => m.remove());
+    if (!o) return;
+    const x = ((o.ts - row.start) / 3600) * 100;
+    track.insertAdjacentHTML("beforeend", `<div class="marker hover" style="left:${x}%"></div><div class="marker-label hover" style="left:${x}%">${hhmmss(o.ts)}</div>`);
+    renderPreview(o, "click to pin", () => openViewer(o));
+  });
+}
+
+// A click on a track means a time. The block under it (or the nearest one)
+// lays out its memories below, with the one closest to the click selected.
+async function scrub(row, e) {
+  const track = e.currentTarget;
+  const rect = track.getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+  const ts = row.start + frac * 3600;
+  if (!row.blocks.length) return;
+  // The block clicked on, if any; else the nearest in the row.
+  const minute = frac * 60;
+  const hit = e.target.closest(".seg");
+  let seg = hit ? row.blocks.find((b) => String(b.from) === hit.dataset.key) : null;
+  if (!seg) seg = row.blocks.reduce((a, b) => {
+    const da = Math.min(Math.abs(a.from - minute), Math.abs(a.to + 1 - minute)), db = Math.min(Math.abs(b.from - minute), Math.abs(b.to + 1 - minute));
+    return db < da ? b : a;
+  });
+  document.querySelectorAll(".tl-row .seg.on").forEach((x) => x.classList.remove("on"));
+  track.querySelector(`.seg[data-key="${seg.from}"]`)?.classList.add("on");
+  stripBlock = seg;
+  stripItems = await call("get", { ids: seg.ids.slice(0, 200) });
+  stripItems.sort((a, b) => a.ts - b.ts);
+  await loadIcons(stripItems);
+  const nearest = stripItems.reduce((a, b) => (Math.abs(b.ts - ts) < Math.abs(a.ts - ts) ? b : a), stripItems[0]);
+  tlSelected = nearest;
+  // The marker sits on the frame that was picked, not on empty time.
+  document.querySelectorAll(".tl-row .marker, .tl-row .marker-label").forEach((m) => m.remove());
+  const x = ((nearest.ts - row.start) / 3600) * 100;
+  track.insertAdjacentHTML("beforeend", `<div class="marker" style="left:${x}%"></div><div class="marker-label" style="left:${x}%">${hhmmss(nearest.ts)}</div>`);
+  renderStrip();
+}
+function renderStrip() {
+  const strip = $("#tlstrip"); strip.hidden = !stripItems.length; strip.innerHTML = "";
+  for (const o of stripItems) {
+    const f = document.createElement("div"); f.className = "frame" + (tlSelected && o.id === tlSelected.id ? " on" : "");
+    f.innerHTML = `<div class="img">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
+      <div class="t">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b></div><div class="when">${hhmmss(o.ts)}</div>`;
+    f.title = o.title || "";
+    f.onclick = () => { tlSelected = o; renderStrip(); };
+    f.ondblclick = () => openStrip();
+    strip.appendChild(f);
+  }
+  const on = strip.querySelector(".frame.on"); if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
+  const o = tlSelected; if (!o) { $("#preview").hidden = true; return; }
+  const others = stripBlock ? Object.entries(stripBlock.apps).filter(([a]) => a !== stripBlock.app).map(([a, n]) => `${a} ${n}`) : [];
+  const mix = stripBlock ? `mostly ${stripBlock.app}${others.length ? ` · also ${others.join(", ")}` : ""}` : "";
+  renderPreview(o, `${stripItems.length} in this block · ${mix}`, () => openStrip());
+}
+function renderPreview(o, note, onOpen) {
+  const p = $("#preview"); p.hidden = false;
+  p.innerHTML = `<div class="thumb">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
+    <div class="lines"><div class="top">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${hhmmss(o.ts)}</span><span class="time">· ${esc(note)}</span></div>
+    <div class="title">${esc(o.title || o.content.split(".")[0])}</div><div class="hint">${esc(o.content)}</div></div>`;
+  p.querySelector(".thumb").onclick = onOpen;
+}
+function openStrip() { if (tlSelected) openViewer(tlSelected, stripItems.length > 1 ? stripItems : undefined); }
+$("#prevday").onclick = () => { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() - 1); day = dayISO(d); loadDay(); };
+$("#nextday").onclick = () => { if (day === dayISO(new Date())) return; const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + 1); day = dayISO(d); loadDay(); };
+
+// ---- watchers ---------------------------------------------------------
+const TRASH = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>`;
+let watcherState = { watchers: [], builtin: { enabled: true } };
+async function loadWatchers() { renderWatchers(await call("watchers", {})); }
+function renderWatchers(state) {
+  watcherState = state; watchers = state.watchers || [];
+  $("#wcount").textContent = watchers.length ? String(watchers.length) : "";
+  const list = $("#wlist"); list.innerHTML = "";
+  // The built-in reminders first, always.
+  const builtinOn = state.builtin?.enabled !== false;
+  const builtin = document.createElement("div"); builtin.className = "wrow" + (builtinOn ? "" : " off");
+  builtin.innerHTML = `<input type="checkbox" class="toggle" ${builtinOn ? "checked" : ""} title="Watch for reminders on screen">
+    <span class="bigicon" style="background:var(--accent)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4l2-2z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span>
+    <div class="what"><div class="top"><b>Reminders on screen</b><span>any app</span></div><div class="cond">Tell me when a meeting or scheduled event pops up, and offer to open the link</div></div>
+    <div class="state"><span class="pill indigo">${builtinOn ? "built in · on" : "built in · off"}</span><span class="sub">watches every frame</span></div><span class="remove builtin"></span>`;
+  builtin.querySelector(".toggle").onchange = (e) => call("enable_watcher", { id: 0, enabled: e.target.checked });
+  list.appendChild(builtin);
+  for (const w of watchers) {
+    const app = (w.target || "").replace(/^the /, "").replace(/ window$/, "");
+    const isScreen = app === "screen";
+    const on = w.enabled !== false;
+    const el = document.createElement("div"); el.className = "wrow" + (on ? "" : " off");
+    el.innerHTML = `<input type="checkbox" class="toggle" ${on ? "checked" : ""} title="${on ? "Pause this watcher" : "Resume this watcher"}">
+      ${appIcon(isScreen ? "Screen" : app, "bigicon")}
+      <div class="what"><div class="top"><b>${esc(isScreen ? "The screen" : app)}</b><span>${esc(w.window_title || "")}</span></div><div class="cond">${esc(w.condition)}</div></div>
+      <div class="state">${!on ? `<span class="pill indigo">paused</span>` : w.stale ? `<span class="pill amber"><span class="d"></span>can't see it</span><span class="sub">${esc(w.stale)}</span>` : `<span class="pill green"><span class="d"></span>watching · 1 fps</span>`}</div>
+      <button class="remove" title="Remove this watcher">${TRASH}</button>`;
+    el.querySelector(".toggle").onchange = (e) => call("enable_watcher", { id: w.id, enabled: e.target.checked });
+    el.querySelector(".remove").onclick = async () => { await call("unwatch", { id: w.id }); };
+    list.appendChild(el);
   }
 }
-async function loadHour(h) {
-  hour = h;
-  terms = [];
-  items = await call("hour", { date: day, hour: h });
-  renderList(`${day} ${String(h).padStart(2, "0")}:00`);
-  if (items.length) select(items[0]);
-  loadDay();
+let pickerData = [];
+async function loadPicker() {
+  pickerData = await call("windows", {});
+  await loadIcons(pickerData.map((a) => ({ app: a.app })));
+  renderPicker();
 }
-function shiftDay(n) {
-  const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + n);
-  day = d.toISOString().slice(0, 10); hour = null; loadDay();
+function renderPicker() {
+  const f = $("#wfilter").value.trim().toLowerCase();
+  const p = $("#picker"); p.innerHTML = "";
+  for (const a of pickerData) {
+    const wins = a.windows.filter((w) => !f || a.app.toLowerCase().includes(f) || w.title.toLowerCase().includes(f));
+    if (!wins.length) continue;
+    const appSel = pickerSel && pickerSel.app === a.app && !pickerSel.title;
+    p.insertAdjacentHTML("beforeend", `<div class="app${appSel ? " sel" : ""}" data-app="${esc(a.app)}">${appIcon(a.app)}<span>${esc(a.app)}</span><span class="n">${a.windows.length} window${a.windows.length === 1 ? "" : "s"}</span></div>`
+      + wins.map((w) => `<div class="win${pickerSel && pickerSel.app === a.app && pickerSel.title === w.title ? " sel" : ""}" data-app="${esc(a.app)}" data-title="${esc(w.title)}">${esc(w.title || "(untitled)")}${w.tabs ? `<span class="n mono" style="margin-left:auto;font-size:10.5px;color:var(--faint)">${w.tabs + 1} tabs</span>` : ""}</div>`).join(""));
+  }
+  p.querySelectorAll(".app").forEach((el) => (el.onclick = () => { pickerSel = { app: el.dataset.app, title: null }; renderPicker(); }));
+  p.querySelectorAll(".win").forEach((el) => (el.onclick = () => { pickerSel = { app: el.dataset.app, title: el.dataset.title }; renderPicker(); }));
 }
-$("#prevday").onclick = () => shiftDay(-1);
-$("#nextday").onclick = () => shiftDay(1);
+$("#wfilter").addEventListener("input", renderPicker);
+$("#startwatch").onclick = async () => {
+  const cond = $("#wcond").value.trim();
+  if (!cond) { $("#wcond").focus(); return; }
+  const target = pickerSel ? (pickerSel.title || pickerSel.app) : "";
+  $("#startwatch").disabled = true;
+  try { await call("watch", { condition: cond, target }); } finally { $("#startwatch").disabled = false; }
+  $("#wcond").value = ""; pickerSel = null; renderPicker(); loadWatchers();
+};
+$("#newwatch").onclick = () => { show("watchers"); $("#wcond").focus(); };
+
+// ---- settings ---------------------------------------------------------
+let settings = {};
+function applyTheme(theme) {
+  if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+  document.querySelectorAll("#themeseg span").forEach((el) => el.classList.toggle("on", el.dataset.v === (theme || "system")));
+}
+async function setTheme(theme) { applyTheme(theme); settings.theme = theme; await call("set_setting", { key: "theme", value: theme }); }
+document.querySelectorAll("#themeseg span").forEach((el) => (el.onclick = () => setTheme(el.dataset.v)));
+function applyRecordSetting() { $("#recordlaunch").checked = settings.record_on_launch !== false; }
+$("#recordlaunch").onchange = async (e) => {
+  settings.record_on_launch = e.target.checked;
+  await call("set_setting", { key: "record_on_launch", value: settings.record_on_launch });
+};
+async function loadSettings() { settings = await call("settings", {}); applyTheme(settings.theme || "system"); applyRecordSetting(); }
+
+// ---- status footer ----------------------------------------------------
+async function loadStatus() {
+  const s = await call("stats", {});
+  paused = s.paused;
+  $("#recdot").classList.toggle("paused", paused);
+  $("#rectext").textContent = (paused ? "Not recording" : "Recording") + (s.watching ? ` · watching ${s.watching}` : "");
+  $("#stats").textContent = `${s.today.toLocaleString()} memories · ${(s.bytes / 1048576).toFixed(0)} MB`;
+  $("#pause span").textContent = paused ? "Start recording" : "Pause";
+  $("#wcount").textContent = s.watching ? String(s.watching) : "";
+}
+$("#pause").onclick = async () => { await call("pause", { paused: !paused }); loadStatus(); };
+
+// ---- window drag --------------------------------------------------------
+// The web view owns the mouse, so the chrome (sidebar, screen headers) hands
+// a press back to the window, which moves with the drag.
+document.addEventListener("mousedown", (e) => {
+  if (e.button !== 0 || e.detail > 1 || !e.target.closest("[data-drag]")) return;
+  if (e.target.closest("button, a, input, textarea, select, .nav, .btn, .lights")) return;
+  e.preventDefault();
+  window.webkit.messageHandlers.peekaboo.postMessage({ method: "drag" });
+});
+
+// ---- searches: past questions and their answers ---------------------------
+function renderAnswer(payload) {
+  $("#answertext").textContent = payload.answer || (payload.ok === false ? "I couldn't finish searching." : "");
+  const obs = payload.observations || [];
+  const meta = [];
+  if (payload.spoken) meta.push(`<span class="spoken"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6E6E73" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>Spoken</span>`);
+  meta.push(`<span>Drew on ${obs.length} ${obs.length === 1 ? "memory" : "memories"}</span>`);
+  if (obs.length) meta.push(`<a href="#" id="openfirst">Open the first one</a>`);
+  $("#answermeta").innerHTML = meta.join("");
+  $("#drew").hidden = true;
+  if (obs.length) { loadIcons(obs).then(() => { fillGrid($("#drewgrid"), obs); $("#drew").hidden = false; }); $("#openfirst").onclick = (e) => { e.preventDefault(); openViewer(obs[0], obs); }; }
+}
+function dayLabel(ts) {
+  const d = new Date(ts * 1000), now = new Date(); const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  if (sameDay(d, now)) return "Today";
+  const y = new Date(now); y.setDate(now.getDate() - 1); if (sameDay(d, y)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+let allAsks = [];
+async function loadSearches() { allAsks = await call("asks", { limit: 1000 }); renderSearches(); }
+$("#sfilter").addEventListener("input", renderSearches);
+function renderSearches() {
+  const needle = $("#sfilter").value.trim().toLowerCase();
+  const asks = needle ? allAsks.filter((a) => (a.question + " " + a.answer).toLowerCase().includes(needle)) : allAsks;
+  const list = $("#slist"); list.innerHTML = "";
+  if (!asks.length) { list.innerHTML = `<div class="empty">${allAsks.length ? "No search matches that." : "Nothing asked yet. Ask by voice, or type in Ask."}</div>`; return; }
+  let day = null;
+  for (const a of asks) {
+    const label = dayLabel(a.ts);
+    if (label !== day) { day = label; const h = document.createElement("div"); h.className = "eyebrow sday"; h.textContent = label; list.appendChild(h); }
+    const row = document.createElement("div"); row.className = "srow";
+    row.innerHTML = `<div class="when">${hhmm(a.ts)}</div><div class="what"><div class="q"><span>${esc(a.question)}</span><span class="src">${a.source === "voice" ? "voice" : "typed"}</span></div><div class="a">${esc(a.answer)}</div></div>
+      <button class="remove" title="Forget this search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>`;
+    row.onclick = () => openAsk(a.id);
+    row.querySelector(".remove").onclick = async (e) => { e.stopPropagation(); await call("ask_delete", { id: a.id }); loadSearches(); };
+    list.appendChild(row);
+  }
+}
+// A past question, restored on the Ask screen exactly as it was answered.
+async function openAsk(id) {
+  const a = await call("ask_get", { id }); if (!a) return;
+  show("ask");
+  $("#q").value = a.question; terms = keywords(a.question);
+  $("#askchip").textContent = `${a.source === "voice" ? "asked by voice" : "typed"} · ${dayLabel(a.ts)} ${hhmm(a.ts)}`; $("#askchip").hidden = false;
+  $("#answer").hidden = false; $("#askclear").hidden = false;
+  renderAnswer(a);
+  const hits = await call("search", { query: a.question, limit: 9 });
+  await loadIcons(hits);
+  $("#matchhead").textContent = hits.length ? `Matching “${a.question}”` : `Nothing matching “${a.question}” by keyword`;
+  fillGrid($("#matchgrid"), hits);
+}
+
+// ---- events from Python -----------------------------------------------
+function handle(event, payload) {
+  if (event === "ask.progress") { $("#answermeta").innerHTML = `<span>${esc(payload.text)}</span>`; }
+  else if (event === "ask.answer") { renderAnswer(payload); if (payload.ask_id && screen === "searches") loadSearches(); }
+  else if (event === "asked") {
+    show("ask"); $("#q").value = payload.question; terms = keywords(payload.question);
+    $("#askchip").textContent = `asked by voice · ${hhmm(Date.now() / 1000)}`; $("#askchip").hidden = false;
+    $("#answer").hidden = false; $("#answertext").textContent = ""; $("#answermeta").innerHTML = `<span>Searching…</span>`; $("#drew").hidden = true; $("#askclear").hidden = false;
+  }
+  else if (event === "show_ask") { openAsk(payload.id); }
+  else if (event === "show") { call("get", { ids: payload.ids }).then(async (obs) => { if (!obs.length) return; await loadIcons(obs); openViewer(obs[0], obs); }); }
+  else if (event === "status") { loadStatus(); if (screen === "watchers") loadWatchers(); }
+  else if (event === "watchers") { $("#wcount").textContent = (payload.watchers || []).length ? String(payload.watchers.length) : ""; if (screen === "watchers") renderWatchers(payload); }
+}
 
 // ---- start ------------------------------------------------------------
 (async () => {
   window.webkit.messageHandlers.peekaboo.postMessage({ method: "ready" });
-  items = await call("recent", { limit: 30 });
-  renderList("Recent");
-  if (items.length) select(items[0]);
-  loadDay();
+  await Promise.all([loadSettings(), showRecent(), loadStatus()]);
+  setInterval(loadStatus, 5000);
 })();
 </script>
 </body>

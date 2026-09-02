@@ -121,3 +121,71 @@ def test_answers_skip_the_settle_wait_but_unsolicited_moments_do_not():
     asyncio.run(run())
     assert [m.text for m in spoken] == ["answer"]
     assert [m.text for m in policy.pending] == ["watch"]
+
+
+def test_strip_wake_recognizes_the_phrase_and_its_mishearings():
+    from processors.wake import strip_wake
+
+    assert strip_wake("Peekaboo, what does the terminal say?") == "what does the terminal say?"
+    assert strip_wake("hey peekaboo what time is it") == "what time is it"
+    assert strip_wake("Peek a boo.") == ""
+    assert strip_wake("pekaboo tell me when the build finishes") == "tell me when the build finishes"
+    # How Moonshine actually heard it, live and on synthesized clips.
+    for heard, rest in [
+        ("P. K.", ""),
+        ("Hey, Pico,", ""),
+        ("Peek-a-", ""),
+        ("Pikaboo.", ""),
+        ("Hey Pikaboo, what does the terminal say?", "what does the terminal say?"),
+        ("Hey Pika Bu, what does the terminal say?", "what does the terminal say?"),
+        ("Hey Pikavu, what does the terminal say?", "what does the terminal say?"),
+        ("Peek-a-doo. What was I doing this morning?", "What was I doing this morning?"),
+        ("Pika Boo, what was I doing this morning?", "what was I doing this morning?"),
+        ("Peak of.", ""),
+    ]:
+        assert strip_wake(heard) == rest, heard
+    # Everyday words that sound nothing like it stay asleep.
+    for other in ["what does the terminal say?", "", "Pick one.", "Peak hours are busy.", "Yeah What was I doing this morning?", "Thank you.", "P.", "Papi Kaboo, what does the terminal say?"]:
+        assert strip_wake(other) is None, other
+
+
+def test_store_keeps_asked_questions(tmp_path):
+    import asyncio
+
+    from store.sqlite_store import SQLiteStore
+
+    async def go():
+        store = SQLiteStore(root=tmp_path)
+        await store.open()
+        try:
+            ask = await store.add_ask("what was I doing?", "You were in the terminal.", "voice", [3, 1])
+            assert ask.id and ask.observation_ids == [3, 1]
+            asks = await store.asks()
+            assert [a.question for a in asks] == ["what was I doing?"]
+            assert (await store.get_ask(ask.id)).source == "voice"
+            await store.delete_ask(ask.id)
+            assert await store.asks() == []
+        finally:
+            await store.close()
+
+    asyncio.run(go())
+
+
+def test_store_finds_past_questions_by_words(tmp_path):
+    import asyncio
+
+    from store.sqlite_store import SQLiteStore
+
+    async def go():
+        store = SQLiteStore(root=tmp_path)
+        await store.open()
+        try:
+            await store.add_ask("what PR did I look at", "Pipecat PR 4540 about Deepgram.", "typed", [])
+            await store.add_ask("what was I doing this morning", "You were in the terminal.", "voice", [])
+            assert [a.question for a in await store.search_asks("pull deepgram")] == []
+            assert [a.question for a in await store.search_asks("deepgram")] == ["what PR did I look at"]
+            assert len(await store.search_asks("")) == 2
+        finally:
+            await store.close()
+
+    asyncio.run(go())

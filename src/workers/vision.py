@@ -57,7 +57,8 @@ today = datetime.now().astimezone().strftime("%B %d, %Y %Z")
 
 QUERY_SYSTEM_INSTRUCTION = f"""
 
-You answer questions about the user's screen. Today is {today}.
+You answer questions about the user's screen, speaking to them directly
+("you have", "your terminal", never "the user"). Today is {today}.
 
 The question usually arrives together with a picture of the screen taken just
 now. Answer questions about the present from that picture. Read exact text,

@@ -7,6 +7,9 @@
 import asyncio
 import re
 import sqlite3
+from dataclasses import dataclass
+import time
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -39,6 +42,16 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 CREATE INDEX IF NOT EXISTS observations_ts ON observations(ts);
 CREATE INDEX IF NOT EXISTS observations_hash ON observations(frame_hash);
+
+CREATE TABLE IF NOT EXISTS asks (
+    id INTEGER PRIMARY KEY,
+    ts INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'typed',
+    observation_ids TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS asks_ts ON asks(ts);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
     content,
@@ -103,6 +116,29 @@ def _row_to_observation(row: sqlite3.Row) -> Observation:
         frame_hash=row["frame_hash"],
         screenshot_path=row["screenshot_path"],
         thumbnail_path=row["thumbnail_path"],
+    )
+
+
+@dataclass
+class Ask:
+    """A question that was asked, what was answered, and the frames behind it."""
+
+    id: int
+    ts: int
+    question: str
+    answer: str
+    source: str  # "typed" or "voice"
+    observation_ids: list[int]
+
+
+def _row_to_ask(row: sqlite3.Row) -> Ask:
+    return Ask(
+        id=row["id"],
+        ts=row["ts"],
+        question=row["question"],
+        answer=row["answer"],
+        source=row["source"],
+        observation_ids=[int(i) for i in json.loads(row["observation_ids"] or "[]")],
     )
 
 
@@ -278,6 +314,61 @@ class SQLiteStore:
             f"SELECT * FROM observations WHERE id IN ({marks}) ORDER BY ts", ids
         ).fetchall()
         return [_row_to_observation(r) for r in rows]
+
+    #
+    # Questions asked and their answers: each one cost a search and a model
+    # call, so they are kept to be looked at again.
+    #
+
+    async def add_ask(self, question: str, answer: str, source: str, observation_ids: Sequence[int]) -> Ask:
+        return await self._run(self._add_ask_sync, question, answer, source, list(observation_ids))
+
+    def _add_ask_sync(self, question: str, answer: str, source: str, ids: list[int]) -> Ask:
+        ts = int(time.time())
+        cur = self._db.execute(
+            "INSERT INTO asks (ts, question, answer, source, observation_ids) VALUES (?, ?, ?, ?, ?)",
+            (ts, question, answer, source, json.dumps(ids)),
+        )
+        self._db.commit()
+        return Ask(id=cur.lastrowid, ts=ts, question=question, answer=answer, source=source, observation_ids=ids)
+
+    async def asks(self, limit: int = 100) -> list[Ask]:
+        """The newest questions, newest first."""
+        return await self._run(self._asks_sync, limit)
+
+    def _asks_sync(self, limit: int) -> list[Ask]:
+        rows = self._db.execute("SELECT * FROM asks ORDER BY ts DESC, id DESC LIMIT ?", (limit,)).fetchall()
+        return [_row_to_ask(r) for r in rows]
+
+    async def search_asks(self, query: str, limit: int = 5) -> list[Ask]:
+        """Past questions whose question or answer contains every word of
+        the query, newest first. An empty query gives the newest ones."""
+        return await self._run(self._search_asks_sync, query, limit)
+
+    def _search_asks_sync(self, query: str, limit: int) -> list[Ask]:
+        words = [w for w in query.lower().split() if len(w) > 2] or []
+        sql = "SELECT * FROM asks"
+        args: list = []
+        if words:
+            sql += " WHERE " + " AND ".join("instr(lower(question || ' ' || answer), ?) > 0" for _ in words)
+            args = words
+        sql += " ORDER BY ts DESC, id DESC LIMIT ?"
+        rows = self._db.execute(sql, [*args, limit]).fetchall()
+        return [_row_to_ask(r) for r in rows]
+
+    async def get_ask(self, ask_id: int) -> Optional[Ask]:
+        return await self._run(self._get_ask_sync, ask_id)
+
+    def _get_ask_sync(self, ask_id: int) -> Optional[Ask]:
+        row = self._db.execute("SELECT * FROM asks WHERE id = ?", (ask_id,)).fetchone()
+        return _row_to_ask(row) if row else None
+
+    async def delete_ask(self, ask_id: int) -> None:
+        await self._run(self._delete_ask_sync, ask_id)
+
+    def _delete_ask_sync(self, ask_id: int) -> None:
+        self._db.execute("DELETE FROM asks WHERE id = ?", (ask_id,))
+        self._db.commit()
 
     async def recent(self, limit: int = 10) -> list[Observation]:
         """The newest observations, newest first."""
