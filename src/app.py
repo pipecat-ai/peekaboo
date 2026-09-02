@@ -9,8 +9,9 @@ speakers. No browser, no server.
 
     uv run src/app.py
 
-Needs Screen Recording and Microphone granted to the terminal, and the API
-keys from ``.env.example`` in a ``.env`` here. The menu bar comes in M4; for
+Needs Screen Recording and Microphone granted to the terminal, and an
+``ANTHROPIC_API_KEY`` in a ``.env`` here (see ``.env.example``). Speech
+recognition and synthesis run locally; the models download on first use. The menu bar comes in M4; for
 now this is a terminal process, Ctrl-C to quit.
 """
 
@@ -37,7 +38,8 @@ from workers.voice import VoiceWorker
 # Plan §5: the store lives where Mac apps keep their data.
 DEFAULT_STORE = Path("~/Library/Application Support/Peekaboo").expanduser()
 
-REQUIRED_KEYS = ("ANTHROPIC_API_KEY", "DEEPGRAM_API_KEY", "CARTESIA_API_KEY")
+# Speech recognition and synthesis run locally; the LLM is the only service.
+REQUIRED_KEYS = ("ANTHROPIC_API_KEY",)
 
 
 async def main(args) -> int:

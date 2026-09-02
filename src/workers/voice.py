@@ -31,9 +31,9 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.services.anthropic.llm import AnthropicLLMService
-from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.kokoro.tts import KokoroTTSService
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.services.moonshine.stt import MoonshineSTTService
 from pipecat.transports.base_transport import BaseTransport
 
 from moments import Moment, MomentKind, MomentPolicy
@@ -43,6 +43,9 @@ from workers.names import SCREEN_WORKER, VISION_WORKER, VOICE_WORKER
 
 # A meeting reminder nobody acted on stops mattering a while after the start.
 MEETING_MOMENT_LIFETIME_SECS = 20 * 60
+
+# Kokoro voice: British English, female. Others: af_heart, bm_george, am_adam.
+KOKORO_VOICE = "bf_emma"
 
 SYSTEM_INSTRUCTION = """
 
@@ -139,13 +142,14 @@ class VoiceWorker(PipelineWorker):
         )
 
     def _build_pipeline(self) -> Pipeline:
-        stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+        # Speech in both directions stays on the machine: Moonshine transcribes
+        # each turn once it ends (ONNX on the CPU, English small model), Kokoro
+        # synthesizes. Both download their models on first use. The LLM is the
+        # only network service in this pipeline.
+        stt = MoonshineSTTService()
 
-        tts = CartesiaTTSService(
-            api_key=os.getenv("CARTESIA_API_KEY"),
-            settings=CartesiaTTSService.Settings(
-                voice="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
-            ),
+        tts = KokoroTTSService(
+            settings=KokoroTTSService.Settings(voice=KOKORO_VOICE),
         )
 
         llm = AnthropicLLMService(
@@ -263,6 +267,14 @@ class VoiceWorker(PipelineWorker):
 
         if self._moments_task is None:
             self._moments_task = self.create_task(self._moments.run(), name="moments")
+
+    async def cleanup(self):
+        # The moment policy runs for the life of the session; take it down
+        # with the worker so shutdown leaves nothing dangling.
+        if self._moments_task:
+            task, self._moments_task = self._moments_task, None
+            await self.cancel_task(task)
+        await super().cleanup()
 
     async def cleanup(self):
         # The moment policy runs for the life of the session; take it down
