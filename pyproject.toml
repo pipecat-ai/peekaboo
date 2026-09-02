@@ -5,5 +5,10 @@ description = "A voice assistant for your on-screen content"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pipecat-ai[anthropic,cartesia,daily,deepgram,local-smart-turn-v3,runner,silero,webrtc]>=0.0.93,<1",
+    "pipecat-ai[anthropic,cartesia,daily,deepgram,runner,silero,webrtc]>=1.8.1,<2",
 ]
+
+[tool.uv.sources]
+# Track the sibling checkout while the workers API settles. Switch back to a
+# PyPI pin once the release we depend on is out.
+pipecat-ai = { path = "../pipecat", editable = true }
