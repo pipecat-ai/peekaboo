@@ -400,6 +400,18 @@ Defaults taken in this plan. Change any of them before M1.
     frame for a few seconds, or a `complete` frame whose content area is
     blank. Frame status alone is not a freshness signal.
 
+12. **Peekaboo is a showcase of Pipecat core.** Anything the app needs that
+    Pipecat offers is used from Pipecat, even when a local shortcut is
+    quicker; anything the app needs that Pipecat lacks is added to Pipecat,
+    not built app-side. The window talks RTVI and is driven by a Pipecat
+    `UIWorker`; the JSON-RPC bridge goes. Candidates to move upstream from
+    what exists today: the on-demand connection for STT services (connect on
+    wake, disconnect after quiet, buffer during the handshake), the wake
+    gate (phonetic wake match on a local recognizer's transcripts, waking
+    the cloud one), transcripts that say which service produced them, the
+    macOS audio transport (AVAudioEngine with the OS echo canceller), and the
+    recorded-greeting playback (a cached-TTS processor).
+
 ---
 
 ## 10. Proposed layout
