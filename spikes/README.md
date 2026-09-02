@@ -55,6 +55,22 @@ Output lands in `spikes/out/` (ignored).
 - Electron apps other than Chrome. One Discord still on another Space had
   content, but it was not retested with a changing view.
 
+## M4 spike: the app's process shape (`menubar.py`)
+
+`uv run spikes/menubar.py --auto` runs AppKit on the main thread with asyncio
+on a background thread carrying the real `src/macos` pieces, and drives every
+action itself.
+
+| Question | Answer |
+|---|---|
+| Do ScreenCaptureKit stills and streams work when the asyncio loop lives on another thread? | Yes. Completion handlers `call_soon_threadsafe` into that loop as before: a still in 132 ms, a 1 fps window stream delivering. |
+| Does the audio engine work from that thread? | Yes. `_Engine` starts with voice processing on, plays, and the tap delivers while it plays. |
+| Do `NSWorkspace` notifications arrive? | Yes, once `AppHelper.runEventLoop()` owns the main thread: activate, launch, and terminate. The registry can stop polling for app-level events. |
+| Menu bar item and dropdown | `NSStatusItem` with `NSApplicationActivationPolicyAccessory` (no Dock icon). Menu actions are selectors on an `NSObject` bridge that hands coroutines to the loop with `run_coroutine_threadsafe`; results come back with `AppHelper.callAfter`, the only way onto the main thread. |
+| `WKWebView` two-way bridge | Local HTML via `loadHTMLString:baseURL:`; JavaScript calls Python through `window.webkit.messageHandlers.<name>.postMessage` into a `WKScriptMessageHandler`; Python calls JavaScript with `evaluateJavaScript:completionHandler:`. Both directions verified. |
+| pyobjc gotcha | Every method on an `NSObject` subclass is turned into a selector; Python-only helpers need `@objc.python_method` or class creation fails with `BadPrototypeError`. |
+| Naming | The process shows up as "Python" in `NSWorkspace` and the app menu. A name and icon are a bundle matter, for packaging. |
+
 ## Decision: Record mode source
 
 **A display stream**, not a frontmost-window stream. It shows what the user

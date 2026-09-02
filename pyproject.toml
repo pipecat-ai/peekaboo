@@ -15,5 +15,6 @@ dependencies = [
     "pyobjc-framework-CoreMedia>=11.0; sys_platform == 'darwin'",
     "pyobjc-framework-ScreenCaptureKit>=11.0; sys_platform == 'darwin'",
     "pyobjc-framework-AVFoundation>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-WebKit>=11.0; sys_platform == 'darwin'",
 ]
 
