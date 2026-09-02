@@ -22,13 +22,14 @@ from pipecat.bus.messages import (
     BusJobUpdateUrgentMessage,
 )
 from pipecat.pipeline.job_context import JobError, JobParams, JobStatus
-from pipecat.workers.base_worker import BaseWorker
+from pipecat.bus.ui.messages import BusUICommandMessage
+from pipecat.workers.base_ui_worker import BaseUIWorker
 
 from macos.memories import MemoriesWindow
 from macos.menubar import MenuBar
 from store.models import Observation
 from store.sqlite_store import SQLiteStore
-from workers.names import HISTORY_WORKER, SCREEN_WORKER, UI_WORKER, VOICE_WORKER
+from workers.names import HISTORY_WORKER, SCREEN_WORKER, SHELL_WORKER, VOICE_WORKER
 
 if TYPE_CHECKING:
     from macos.registry import WindowRegistry
@@ -42,7 +43,7 @@ REFRESH_SECS = 2.0
 RECENT_ITEMS = 10
 
 
-class UIWorker(BaseWorker):
+class ShellWorker(BaseUIWorker):
     """The one crossing between the workers and the menu bar.
 
     A bus-only worker: no pipeline. It keeps the Watching and Recent menus
@@ -69,10 +70,11 @@ class UIWorker(BaseWorker):
         voice_worker: str = VOICE_WORKER,
         **kwargs,
     ):
-        super().__init__(name=UI_WORKER, **kwargs)
+        super().__init__(name=SHELL_WORKER, **kwargs)
         self._menubar = menubar
         self._store = store
         self._memories = memories
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         # The window registry; BaseWorker owns ``_registry`` (the worker registry).
         self._windows = registry
         self._screen_worker = screen_worker
@@ -88,6 +90,7 @@ class UIWorker(BaseWorker):
         self._asks: dict[str, str] = {}
 
     async def start(self):
+        self._loop = asyncio.get_running_loop()
         await super().start()
         self._refresh = asyncio.create_task(self._run_refresh(), name="ui-refresh")
         if self._memories:
@@ -119,8 +122,7 @@ class UIWorker(BaseWorker):
             logger.warning(f"{self}: capture {action} failed: {e}")
         logger.info(f"{self}: {'paused' if paused else 'resumed'}")
         self._menubar.set_paused(paused)
-        if self._memories:
-            self._memories.send("status")
+        self._push("status")
 
     async def unwatch(self, watcher_id: int):
         try:
@@ -131,6 +133,24 @@ class UIWorker(BaseWorker):
         except JobError as e:
             logger.warning(f"{self}: unwatch {watcher_id} failed: {e}")
         await self._refresh_once()
+
+    def _push(self, command: str, payload: Any = None):
+        """A command for the page, from any thread: a ``ui-command`` on the
+        bus, which the voice worker (owner of the RTVI processor) turns into
+        an RTVI envelope for the page's Pipecat client."""
+        if self._loop is None:
+            return
+        message = BusUICommandMessage(
+            source=self.name, target=None, command_name=command, payload={} if payload is None else payload
+        )
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is self._loop:
+            self._loop.create_task(self.send_bus_message(message))
+        else:
+            asyncio.run_coroutine_threadsafe(self.send_bus_message(message), self._loop)
 
     def set_voice_state(self, state: str):
         """From the voice worker's conversation state, any thread."""
@@ -145,22 +165,19 @@ class UIWorker(BaseWorker):
     def show_ask(self, ask_id: int):
         """Show a past search on the Ask screen, as when clicked in Searches.
         Any thread; the window is not opened for it."""
-        if self._memories:
-            self._memories.send("show_ask", {"id": int(ask_id)})
+        self._push("show_ask", {"id": int(ask_id)})
 
     def show_asked(self, question: str):
         """A question was asked by voice: the Ask screen shows it and waits.
         Any thread. The window is not opened for it; the answer is there
         when the user looks."""
-        if self._memories:
-            self._memories.send("asked", {"question": question})
+        self._push("asked", {"question": question})
 
     async def show_answer(self, question: str, answer: str, ids: list[int]):
         """A spoken answer: kept with the question, and shown with the frames
         behind it on the Ask screen."""
         ask = await self._store.add_ask(question, answer, "voice", ids)
-        if self._memories:
-            self._memories.send(
+        self._push(
                 "ask.answer", await self._answer_payload(answer, ids, ok=True, spoken=True, ask_id=ask.id)
             )
 
@@ -413,7 +430,7 @@ class UIWorker(BaseWorker):
         if message.job_id in self._asks and self._memories:
             text = (message.update or {}).get("say")
             if text:
-                self._memories.send("ask.progress", {"text": text})
+                self._push("ask.progress", {"text": text})
 
     async def on_job_response(self, message: BusJobResponseMessage | BusJobResponseUrgentMessage):
         await super().on_job_response(message)
@@ -435,7 +452,7 @@ class UIWorker(BaseWorker):
         if ok and answer:
             ask_id = (await self._store.add_ask(question, answer, "typed", ids)).id
         payload = await self._answer_payload(answer, ids, ok=ok, ask_id=ask_id)
-        self._memories.send("ask.answer", payload)
+        self._push("ask.answer", payload)
 
     async def _answer_payload(
         self, answer: str, ids: list[int], *, ok: bool, spoken: bool = False, ask_id: Optional[int] = None
@@ -527,8 +544,7 @@ class UIWorker(BaseWorker):
         key = json.dumps(state, sort_keys=True)
         if key != self._last_watchers:
             self._last_watchers = key
-            if self._memories:
-                self._memories.send("watchers", state)
+            self._push("watchers", state)
 
         recent = await self._store.recent(limit=RECENT_ITEMS)
         self._menubar.set_recent(

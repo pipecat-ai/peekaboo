@@ -370,18 +370,20 @@
 
 <script>
 // ---- bridge -----------------------------------------------------------
-const pending = new Map(); let seq = 0;
-function call(method, params = {}) {
-  return new Promise((resolve, reject) => {
-    const id = ++seq; pending.set(id, { resolve, reject });
-    window.webkit.messageHandlers.peekaboo.postMessage({ id, method, params });
-  });
+// Requests go to the pipeline as RTVI client messages (answered by the shell
+// worker); what the app pushes arrives as RTVI ui-commands. The client itself
+// is set up in the module script at the bottom.
+let rtviConnected;
+window.peekaboo = {
+  rtviReady: new Promise((resolve) => { rtviConnected = resolve; }),
+  rtviConnected: () => rtviConnected(),
+  onUICommand({ command, payload }) { handle(command, payload ?? {}); },
+  onServerMessage(data) { if (data && data.event) handle(data.event, data.payload ?? {}); },
+};
+async function call(method, params = {}) {
+  await window.peekaboo.rtviReady;
+  return window.peekaboo.client.sendClientRequest(method, params);
 }
-window.peekaboo = { receive(msg) {
-  if (msg.event === "result") { const p = pending.get(msg.payload.id); if (!p) return; pending.delete(msg.payload.id);
-    msg.payload.error ? p.reject(new Error(msg.payload.error)) : p.resolve(msg.payload.result); return; }
-  handle(msg.event, msg.payload);
-} };
 
 // ---- helpers ----------------------------------------------------------
 const $ = (s) => document.querySelector(s);
@@ -875,10 +877,60 @@ function handle(event, payload) {
 
 // ---- start ------------------------------------------------------------
 (async () => {
-  window.webkit.messageHandlers.peekaboo.postMessage({ method: "ready" });
   await Promise.all([loadSettings(), showRecent(), loadStatus()]);
   setInterval(loadStatus, 5000);
 })();
+</script>
+
+<!-- The page is a Pipecat client. Its transport is the web view's script
+     bridge: RTVI envelopes travel as {rtvi: ...} messages both ways, and the
+     pipeline's own transport carries them to and from the RTVI processor. -->
+<script type="module">
+import { PipecatClient, Transport, RTVIMessage, RTVIEvent } from "./vendor/pipecat-client.js";
+
+const log = (...args) => window.webkit.messageHandlers.peekaboo.postMessage({ method: "log", params: args.map(String).join(" ") });
+
+class BridgeTransport extends Transport {
+  constructor() { super(); this._state = "disconnected"; this._callbacks = {}; }
+  initialize(options, messageHandler) {
+    this._onMessage = messageHandler;
+    this._callbacks = options.callbacks || {};
+    window.peekaboo.rtvi = (message) => this._onMessage(message);
+    this.state = "initialized";
+  }
+  async initDevices() {}
+  _validateConnectionParams(params) { return params; }
+  async _connect() { this.state = "connected"; }
+  async _disconnect() { this.state = "disconnected"; }
+  sendReadyMessage() { this.state = "ready"; this.sendMessage(RTVIMessage.clientReady()); }
+  get state() { return this._state; }
+  set state(state) { if (state === this._state) return; this._state = state; this._callbacks.onTransportStateChanged?.(state); }
+  sendMessage(message) {
+    const { label, type, id, data } = message;
+    window.webkit.messageHandlers.peekaboo.postMessage({ rtvi: { label, type, id, data: data ?? null } });
+  }
+  getAllMics() { return Promise.resolve([]); } getAllCams() { return Promise.resolve([]); } getAllSpeakers() { return Promise.resolve([]); }
+  updateMic() {} updateCam() {} updateSpeaker() {}
+  get selectedMic() { return {}; } get selectedCam() { return {}; } get selectedSpeaker() { return {}; }
+  enableMic() {} enableCam() {} enableScreenShare() {}
+  get isCamEnabled() { return false; } get isMicEnabled() { return false; } get isSharingScreen() { return false; }
+  tracks() { return { local: {}, bot: {} }; }
+}
+
+const client = new PipecatClient({
+  transport: new BridgeTransport(),
+  enableMic: false,
+  enableCam: false,
+  callbacks: {
+    onBotReady: (data) => log("rtvi: bot ready, protocol", data.version),
+    onServerMessage: (data) => window.peekaboo.onServerMessage?.(data),
+    onUICommand: (data) => window.peekaboo.onUICommand?.(data),
+    onError: (message) => log("rtvi error:", JSON.stringify(message)),
+    onMessageError: (message) => log("rtvi message error:", JSON.stringify(message)),
+  },
+});
+window.peekaboo.client = client;
+client.connect().then(() => { log("rtvi: connected"); window.peekaboo.rtviConnected(); }).catch((e) => log("rtvi: connect failed:", e));
 </script>
 </body>
 </html>

@@ -47,7 +47,7 @@ from sources.macos import ScreenCaptureSource
 from store.sqlite_store import SQLiteStore
 from workers.history import HistoryWorker
 from workers.screen import ScreenWorker
-from workers.ui import UIWorker
+from workers.shell import ShellWorker
 from workers.vision import VisionWorker
 from workers.voice import VoiceWorker
 
@@ -69,17 +69,17 @@ class App:
         self.menubar: Optional[MenuBar] = None
         self.memories: Optional[MemoriesWindow] = None
         self.runner: Optional[WorkerRunner] = None
-        self.ui: Optional[UIWorker] = None
+        self.shell: Optional[ShellWorker] = None
 
     # --- menu actions, main thread -> asyncio
 
     def on_pause(self, paused: bool):
-        if self.ui:
-            asyncio.run_coroutine_threadsafe(self.ui.pause(paused), self.loop)
+        if self.shell:
+            asyncio.run_coroutine_threadsafe(self.shell.pause(paused), self.loop)
 
     def on_unwatch(self, watcher_id: int):
-        if self.ui:
-            asyncio.run_coroutine_threadsafe(self.ui.unwatch(watcher_id), self.loop)
+        if self.shell:
+            asyncio.run_coroutine_threadsafe(self.shell.unwatch(watcher_id), self.loop)
 
     def on_quit(self):
         AppKit.NSApp.terminate_(None)
@@ -91,11 +91,6 @@ class App:
     def on_open_recent(self, observation_id: int):
         if self.memories:
             self.memories.open([observation_id])
-
-    async def on_page_call(self, method: str, params: dict):
-        if self.ui is None:
-            raise RuntimeError("not ready yet")
-        return await self.ui.call(method, params)
 
     # --- asyncio side
 
@@ -123,6 +118,11 @@ class App:
                 voice_processing=not self.args.no_voice_processing,
             )
         )
+        if self.memories:
+            # The window's page is the pipeline's RTVI client: envelopes out
+            # through the web view, the page's messages in to the transport.
+            transport.set_client(self.memories.send_rtvi)
+            self.memories.on_rtvi = transport.receive_message
         source = ScreenCaptureSource(registry=registry)
 
         # Same workers as bot.py plus the ui worker; only the transport and
@@ -130,27 +130,39 @@ class App:
         # voice pipeline carries audio only. Signals are AppKit's business on
         # the main thread, so the runner leaves SIGINT alone.
         self.runner = WorkerRunner(handle_sigint=False)
-        self.ui = UIWorker(menubar=self.menubar, store=store, memories=self.memories, registry=registry)
+        self.shell = ShellWorker(menubar=self.menubar, store=store, memories=self.memories, registry=registry)
         voice = VoiceWorker(
             transport,
             screen_from_transport=False,
             open_links=True,
             speech="local" if self.args.local_speech else "cloud",
             registry=registry,
-            on_state=self.ui.set_voice_state,
-            on_show=self.ui.open_memories,
-            on_asked=self.ui.show_asked,
-            on_show_ask=self.ui.show_ask,
+            on_state=self.shell.set_voice_state,
+            on_show=self.shell.open_memories,
+            on_asked=self.shell.show_asked,
+            on_show_ask=self.shell.show_ask,
             store=store,
-            on_answer=self.ui.show_answer,
-            on_recording=lambda on: self.ui.pause(not on),
+            on_answer=self.shell.show_answer,
+            on_recording=lambda on: self.shell.pause(not on),
             greeting_cache=self.args.store / "greetings",
             idle_timeout_secs=None,
         )
+        if voice.rtvi:
+            # The page's data requests (client-message) are answered by the
+            # shell worker; the response goes back as a server-response.
+            @voice.rtvi.event_handler("on_client_message")
+            async def on_client_message(rtvi, message):
+                try:
+                    result = await self.shell.call(message.type, dict(message.data or {}))
+                    await rtvi.send_server_response(message, result)
+                except Exception as e:  # noqa: BLE001 - reported to the page
+                    logger.warning(f"page request {message.type} failed: {e}")
+                    await rtvi.send_error_response(message, str(e))
+
         screen = ScreenWorker(store=store, source=source)
         vision = VisionWorker(store=store)
         history = HistoryWorker(store=store)
-        await self.runner.add_workers(history, screen, vision, voice, self.ui)
+        await self.runner.add_workers(history, screen, vision, voice, self.shell)
         # Development hooks: open the page, poke it, picture it.
         dev = self.args.open_memories or self.args.snapshot_memories or self.args.memories_eval
         if dev and self.memories:
@@ -168,9 +180,9 @@ class App:
 
         @transport.event_handler("on_ready")
         async def on_ready(transport):
-            recording = self.ui.settings().get("record_on_launch", True)
+            recording = self.shell.settings().get("record_on_launch", True)
             logger.info(f"audio is up; starting the conversation ({'recording' if recording else 'not recording'})")
-            self.ui.set_recording_state(recording)
+            self.shell.set_recording_state(recording)
             await voice.start_session("local", recording=recording)
 
         try:
@@ -312,7 +324,7 @@ def main() -> int:
     ns_app.setMainMenu_(build_main_menu())
 
     app = App(args, loop)
-    app.memories = MemoriesWindow(store_root=args.store, loop=loop, on_call=app.on_page_call)
+    app.memories = MemoriesWindow(store_root=args.store, loop=loop)
     app.menubar = MenuBar(
         on_pause=app.on_pause,
         on_quit=app.on_quit,

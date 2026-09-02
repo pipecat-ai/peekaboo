@@ -39,8 +39,11 @@ from pipecat.frames.frames import (
     EndFrame,
     Frame,
     InputAudioRawFrame,
+    InputTransportMessageFrame,
     InterruptionFrame,
     OutputAudioRawFrame,
+    OutputTransportMessageFrame,
+    OutputTransportMessageUrgentFrame,
     StartFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor, FrameProcessorSetup
@@ -233,13 +236,28 @@ class MacAudioInputTransport(BaseInputTransport):
         super().__init__(params)
         self._engine = engine
         self._on_ready = on_ready
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._resampler = create_stream_resampler()
         self._queue: Optional[asyncio.Queue] = None
         self._task: Optional[asyncio.Task] = None
 
     async def setup(self, setup: FrameProcessorSetup):
         await super().setup(setup)
-        self._engine.set_input_handler(self.get_event_loop(), self._on_audio)
+        self._loop = self.get_event_loop()
+        self._engine.set_input_handler(self._loop, self._on_audio)
+
+    def receive_message(self, message: dict):
+        """A message from the client (the app's page), from any thread.
+
+        Goes upstream: ``PipelineWorker`` puts the RTVI processor in front of
+        the pipeline, so upstream is the direct route to it.
+        """
+        if self._loop is None:
+            logger.warning("mac transport: message before setup, dropped")
+            return
+        asyncio.run_coroutine_threadsafe(
+            self.push_frame(InputTransportMessageFrame(message=message), FrameDirection.UPSTREAM), self._loop
+        )
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
@@ -294,10 +312,15 @@ class MacAudioOutputTransport(BaseOutputTransport):
 
     _params: MacAudioTransportParams
 
-    def __init__(self, engine: _Engine, params: MacAudioTransportParams):
+    def __init__(self, engine: _Engine, params: MacAudioTransportParams, *, send_to_client: Callable[[dict], None]):
         super().__init__(params)
         self._engine = engine
         self._play_head = 0.0
+        self._send_to_client = send_to_client
+
+    async def send_message(self, frame: OutputTransportMessageFrame | OutputTransportMessageUrgentFrame):
+        """A message for the client (RTVI envelopes from the observer)."""
+        self._send_to_client(frame.message)
 
     async def setup(self, setup: FrameProcessorSetup):
         await super().setup(setup)
@@ -336,19 +359,44 @@ class MacAudioOutputTransport(BaseOutputTransport):
 
 
 class MacAudioTransport(BaseTransport):
-    """Local audio on macOS through one ``AVAudioEngine``.
+    """Local audio on macOS through one ``AVAudioEngine``, plus a message
+    channel for the app's own client: the RTVI envelopes the pipeline emits
+    go out through ``send_to_client``, and what the client sends comes in
+    through :meth:`receive_message`. Any in-process UI (a web view, a native
+    window) can be the client.
 
     Events:
         on_ready: The engine is running and the pipeline has started.
     """
 
-    def __init__(self, params: Optional[MacAudioTransportParams] = None):
+    def __init__(
+        self,
+        params: Optional[MacAudioTransportParams] = None,
+        *,
+        send_to_client: Optional[Callable[[dict], None]] = None,
+    ):
         super().__init__()
         self._params = params or MacAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True)
         self._engine = _Engine(voice_processing=self._params.voice_processing)
+        self._send_to_client = send_to_client
         self._input: Optional[MacAudioInputTransport] = None
         self._output: Optional[MacAudioOutputTransport] = None
         self._register_event_handler("on_ready")
+
+    def set_client(self, send_to_client: Callable[[dict], None]):
+        """Where messages for the client go. Can be set after construction,
+        but before the pipeline sends anything."""
+        self._send_to_client = send_to_client
+
+    def receive_message(self, message: dict):
+        """A message from the client, from any thread."""
+        self.input().receive_message(message)  # type: ignore[attr-defined]
+
+    def _deliver(self, message: dict):
+        if self._send_to_client:
+            self._send_to_client(message)
+        else:
+            logger.debug(f"mac transport: no client for message {message.get('type')}")
 
     def input(self) -> FrameProcessor:
         if not self._input:
@@ -357,7 +405,7 @@ class MacAudioTransport(BaseTransport):
 
     def output(self) -> FrameProcessor:
         if not self._output:
-            self._output = MacAudioOutputTransport(self._engine, self._params)
+            self._output = MacAudioOutputTransport(self._engine, self._params, send_to_client=self._deliver)
         return self._output
 
     async def _ready(self):
