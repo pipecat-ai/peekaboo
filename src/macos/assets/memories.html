@@ -97,7 +97,7 @@
   .memcard .who b { font-weight: 600; }
   .memcard .who .time { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
   .memcard .title { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .memcard .verbatim { font: 11px/1.5 var(--mono); color: var(--verb); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .memcard .desc { font-size: 12px; line-height: 1.45; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   mark { background: var(--accent-soft); color: var(--accent-dark); border-radius: 3px; padding: 0 3px; }
   .section { display: flex; flex-direction: column; gap: 12px; }
   .empty { color: var(--faint); font-size: 12.5px; }
@@ -508,15 +508,14 @@ const cardData = new WeakMap();
 function card(o) {
   const el = document.createElement("div");
   el.className = "memcard";
-  const verb = (o.verbatim_text || []).slice(0, 3).join(" · ");
   // What the window agent sees of this card: one line, in the snapshot.
   el.setAttribute("role", "button");
   el.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmm(o.ts)}: ${brief(o.title ? `${o.title}. ${o.content}` : o.content)}`);
   el.innerHTML = `
     <div class="shot" data-a11y-exclude>${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
     <div class="who" data-a11y-exclude>${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${hhmm(o.ts)}</span></div>
-    <div class="title" data-a11y-exclude>${esc(o.title || o.content.split(".")[0])}</div>
-    <div class="verbatim" data-a11y-exclude>${hi(verb || o.content)}</div>`;
+    <div class="title" data-a11y-exclude>${esc(o.title || "")}</div>
+    <div class="desc" data-a11y-exclude>${hi(o.content)}</div>`;
   el.onclick = () => openViewer(o, cardsIn(el.parentNode));
   return el;
 }
