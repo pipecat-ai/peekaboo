@@ -80,3 +80,15 @@ side-by-side layouts. The registry tags each observation with the frontmost
 app and window title. Cost is a display-sized frame, so text is smaller than
 in a window-scoped frame; capture at 1280 wide (the store's width) rather
 than 1080 if legibility suffers.
+
+## M7: a tick that captures every window (`windows_tick.py`)
+
+Measured on 2026-09-02 with 13 content windows across Chrome, Google Drive,
+Ghostty (three tabs), Slack and Discord, while working in the terminal:
+
+| Question | Answer |
+|---|---|
+| How long is a tick that stills the display and every window? | **630–800 ms** for 13 windows, sequential: ~40 ms per window at 1080 wide, the display still 70–180 ms at 1280. Capturing windows concurrently should cut it further; even sequential it fits a 2–5 s tick. |
+| How many windows change per tick? | **1–2 of 13** every 5 s while typing in one window. With hash gating, the analysis rate stays where it is today (one frame per tick), the record just gains the windows that did change. |
+| How much would be stored? | The display still is 50–125 KB; changed windows 26–119 KB per tick. Same order as today's 9 MB/h. |
+| How many come back blank? | **8 of 13**: Ghostty's hidden tabs (SCK lists each tab as a window; only the visible one paints), Chrome and Drive windows on another Space or hidden. The blank detector (`blank_fraction ≥ 0.97`) catches all of them; those windows must be skipped or marked, not analysed. |

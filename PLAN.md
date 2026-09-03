@@ -52,6 +52,7 @@ only OS-specific code is the capture layer, so the door stays open.
 | `SCScreenshotManager` (macOS 14) captures a single still of a window or app without opening a stream, in 45–180 ms at 1080 wide. | Verified in M0 | Look |
 | Apps that track occlusion (Chrome, Electron, Safari) stop drawing when hidden, minimized, **or on another Space**: Chrome on another Space yields `complete` frames and stills whose content area is blank. Terminals and most native apps keep drawing. | Verified in M0 (Chrome, Ghostty) | Staleness UX |
 | Minimized and hidden windows go silent (`suspended`). Another Space is fine for apps that keep drawing and blank for those that don't. Same-Space occlusion not yet tested. | Verified in M0 | Staleness UX |
+| A tick that stills the display and every content window (13 here) takes 630–800 ms sequentially, ~40 ms per window; 1–2 windows change per 5 s tick, so hash gating keeps analysis at today's rate; 8 of 13 stills were blank (hidden tabs, off-Space browsers) and the blank detector catches them. | Verified in the M7 spike | M7 capture |
 | Using `SCContentFilter` from Python needs an `NSApplication`; without one the process asserts with `CGS_REQUIRE_INIT`. `NSApplication.sharedApplication()` is enough, no run loop required. | Verified in M0 | Everything |
 | Screen Recording permission is required for capture and for reading window titles. | High | Permissions |
 | Capturing without the system picker triggers Sequoia's periodic re-authorization prompt (weekly on 15.0, monthly on 15.1+). | Medium-high | Permissions |
