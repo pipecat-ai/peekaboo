@@ -376,7 +376,12 @@ class ScreenCaptureSource(BaseFrameSource):
                     and streamed.last_frame_at is not None
                     and now - streamed.last_frame_at > STALE_AFTER_SECS
                 ):
-                    await self._set_stale(streamed, "no frames are coming from it; it may be minimized or hidden")
+                    # Silence alone is not staleness: Electron apps such as
+                    # Slack only repaint when something changes. It is stale
+                    # when the registry also says the window is off screen.
+                    window = self._window_for(streamed.target)
+                    if window is None or not window.on_screen:
+                        await self._set_stale(streamed, "it is minimized or hidden")
 
     async def _set_stale(self, streamed: _Streamed, reason: str):
         if streamed.stale_reason is not None:
@@ -393,11 +398,16 @@ class ScreenCaptureSource(BaseFrameSource):
         await self._call_event_handler("on_target_fresh", streamed.target)
 
     def _on_registry_event(self, event: RegistryEvent):
-        if event.kind != EventKind.CLOSED:
-            return
         target = self._target_for(event.window)
-        if target in self._streamed:
+        streamed = self._streamed.get(target)
+        if streamed is None:
+            return
+        if event.kind == EventKind.CLOSED:
             self.create_task(self._lose(target, "the window was closed"))
+        elif event.kind == EventKind.HIDDEN:
+            self.create_task(self._set_stale(streamed, "it is minimized or hidden"))
+        elif event.kind == EventKind.SHOWN:
+            self.create_task(self._set_fresh(streamed))
 
     async def _lose(self, target: str, reason: str):
         await self.remove_target(target)

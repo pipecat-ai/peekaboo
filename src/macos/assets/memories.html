@@ -1149,9 +1149,16 @@ $("#recordlaunch").onchange = async (e) => {
 async function loadSettings() { settings = await call("settings", {}); applyTheme(settings.theme || "system"); applyRecordSetting(); }
 
 // ---- status footer ----------------------------------------------------
+let lastToday = null;
 async function loadStatus() {
   const s = await call("stats", {});
   paused = s.paused;
+  // New memories since the last look: the screens showing "now" follow.
+  if (lastToday !== null && s.today !== lastToday) {
+    if (screen === "ask" && $("#answer").hidden) showRecent();
+    if (screen === "timeline" && day === dayISO(new Date()) && zoomHour === null && !stripItems.length && !tlRange) loadDay();
+  }
+  lastToday = s.today;
   $("#recdot").classList.toggle("paused", paused);
   $("#rectext").textContent = (paused ? "Not recording" : "Recording") + (s.watching ? ` · watching ${s.watching}` : "");
   $("#stats").textContent = `${s.today.toLocaleString()} memories · ${(s.bytes / 1048576).toFixed(0)} MB`;

@@ -38,6 +38,8 @@ from workers.names import SCREEN_WORKER
 
 # How long a `frame` job waits for the source to deliver.
 FRAME_TIMEOUT_SECS = 8.0
+# A watched window has to stay out of sight this long before it is mentioned.
+STALE_ANNOUNCE_SECS = 15.0
 
 # Always on the watchlist, as item 0 on every target: the reminders the OS and
 # other apps put on screen. A hit becomes a meeting moment for whoever
@@ -204,6 +206,8 @@ class ScreenWorker(PipelineWorker):
         self._frame_source = source or TransportScreenSource()
         self._gate = ChangeGate()
         self._analyses: deque[float] = deque()
+        self._stale_timers: dict[str, asyncio.Task] = {}
+        self._stale_announced: set[str] = set()
         self._analyses_total = 0
         self._image_processor = VisionImageProcessor(
             system_instruction=IMAGE_SYSTEM_INSTRUCTION, watchlist=[NOTIFICATION_WATCH]
@@ -631,6 +635,15 @@ class ScreenWorker(PipelineWorker):
     #
 
     async def _on_target_stale(self, source, target: str, reason: str):
+        # Spoken only if it lasts: a window that hides for a few seconds while
+        # the user switches around is not worth a sentence.
+        self._cancel_stale_timer(target)
+        self._stale_timers[target] = self.create_task(self._announce_stale(target, reason))
+
+    async def _announce_stale(self, target: str, reason: str):
+        await asyncio.sleep(STALE_ANNOUNCE_SECS)
+        self._stale_timers.pop(target, None)
+        self._stale_announced.add(target)
         for watcher in self._watchers_on(target):
             await self.send_job_update(
                 watcher.job_id,
@@ -638,13 +651,24 @@ class ScreenWorker(PipelineWorker):
                 urgent=True,
             )
 
+    def _cancel_stale_timer(self, target: str):
+        timer = self._stale_timers.pop(target, None)
+        if timer:
+            timer.cancel()
+
     async def _on_target_fresh(self, source, target: str):
+        self._cancel_stale_timer(target)
+        if target not in self._stale_announced:
+            return
+        self._stale_announced.discard(target)
         for watcher in self._watchers_on(target):
             await self.send_job_update(
                 watcher.job_id, {"warning": f"I can see {watcher.label} again."}, urgent=True
             )
 
     async def _on_target_lost(self, source, target: str, reason: str):
+        self._cancel_stale_timer(target)
+        self._stale_announced.discard(target)
         for watcher in self._watchers_on(target):
             await self.send_job_update(
                 watcher.job_id,
