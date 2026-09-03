@@ -149,6 +149,14 @@ class WakeGate(FrameProcessor):
             self._extend()
             if isinstance(frame, TranscriptionFrame):
                 self._cancel_ack()
+                # "Peekaboo, what time is it" while awake: the name is not
+                # part of the question, and the name alone is nothing.
+                remainder = strip_wake(frame.text)
+                if remainder is not None:
+                    if not remainder.strip():
+                        logger.debug(f"{self}: the wake word alone while awake, ignored")
+                        return
+                    frame = replace(frame, text=remainder)
             await self.push_frame(frame, direction)
             return
 

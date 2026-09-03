@@ -32,6 +32,8 @@ from workers.names import UI_WORKER
 
 UI_MODEL = "claude-haiku-4-5"
 UI_MAX_TOKENS = 400
+# A request to the window agent is answered for it after this long.
+UI_TURN_TIMEOUT_SECS = 15.0
 
 SCREENS = ("ask", "searches", "timeline", "watchers", "settings")
 
@@ -79,8 +81,10 @@ memories. Then answer with [reply] in two sentences from those memories'
 names, naming the apps and the span. Do not send the user to a search.
 
 [select] clicks without answering, for when you need to see the result
-before you speak (a block's memories, another screen). Finish every request
-with exactly one call to [reply]:
+before you speak (a block's memories, another screen). After [select] you
+must still call [reply]; a request is not done until [reply] is called.
+Never answer in plain text. Finish every request with exactly one call to
+[reply]:
 - To open a memory, pass its ref as `click`. To go back, click the "Back"
   button. To switch screens, pass `navigate` with one of: ask, searches,
   timeline, watchers, settings.
@@ -179,6 +183,19 @@ class PeekabooUIWorker(UIWorker):
             await self.click(click)
         await self.respond_to_job(answer, tts_speak=True)
         await params.result_callback(None)
+
+    async def _run_llm_turn(self, message) -> None:
+        """The stock turn waits until a tool calls ``respond_to_job``; a turn
+        that ends in plain text, or a model that goes quiet after ``select``,
+        would leave the job open and every later request queued behind it.
+        After a while the job is answered for it."""
+        turn = asyncio.ensure_future(super()._run_llm_turn(message))
+        try:
+            await asyncio.wait_for(asyncio.shield(turn), timeout=UI_TURN_TIMEOUT_SECS)
+        except asyncio.TimeoutError:
+            logger.warning(f"{self}: no reply within {UI_TURN_TIMEOUT_SECS:.0f}s; answering for the window agent")
+            await self.respond_to_job("Sorry, I lost track of that one.", tts_speak=True)
+            await turn
 
     def render_query(self, message) -> str:
         # Relative days ("last Tuesday") need to know when now is.

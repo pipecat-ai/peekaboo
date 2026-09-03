@@ -352,6 +352,7 @@ class VoiceWorker(PipelineWorker):
         on_show: Optional[Callable[[list[int]], None]] = None,
         on_asked: Optional[Callable[[str], None]] = None,
         on_show_ask: Optional[Callable[[int], None]] = None,
+        on_show_screen: Optional[Callable[[str], None]] = None,
         store: Optional["SQLiteStore"] = None,
         on_answer: Optional[Callable[[str, str, list[int]], Awaitable[None]]] = None,
         on_recording: Optional[Callable[[bool], Awaitable[None]]] = None,
@@ -371,6 +372,7 @@ class VoiceWorker(PipelineWorker):
         self._on_show = on_show
         self._on_asked = on_asked
         self._on_show_ask = on_show_ask
+        self._on_show_screen = on_show_screen
         self._store = store
         self._on_answer = on_answer
         self._on_recording = on_recording
@@ -844,6 +846,9 @@ class VoiceWorker(PipelineWorker):
         await params.result_callback(t.response or {})
 
     async def _list_watchers(self, params: FunctionCallParams):
+        # Asked about the watchers, the window shows them too.
+        if self._on_show_screen:
+            self._on_show_screen("watchers")
         try:
             async with self.job(self._screen_worker, params=JobParams(name="list_watchers")) as t:
                 pass

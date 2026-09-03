@@ -182,6 +182,11 @@ class ShellWorker(BaseUIWorker):
         Any thread; the window is not opened for it."""
         self._push("show_ask", {"id": int(ask_id)})
 
+    def show_screen(self, name: str):
+        """Switch the window to a screen (ask, searches, timeline, watchers,
+        settings). Any thread; the window is not opened for it."""
+        self._push("navigate", {"view": str(name)})
+
     def show_asked(self, question: str):
         """A question was asked by voice: the Ask screen shows it and waits.
         Any thread. The window is not opened for it; the answer is there

@@ -157,6 +157,7 @@ class App:
             on_show=self.shell.open_memories,
             on_asked=self.shell.show_asked,
             on_show_ask=self.shell.show_ask,
+            on_show_screen=self.shell.show_screen,
             store=store,
             on_answer=self.shell.show_answer,
             on_recording=lambda on: self.shell.pause(not on),

@@ -335,3 +335,22 @@ def test_watch_items_can_apply_to_several_targets():
     assert [i.id for i in watchlist_for([everywhere, banners, one], "banner")] == [0, 1]
     assert [i.id for i in watchlist_for([everywhere, banners, one], "window:7")] == [1, 2]
     assert [i.id for i in watchlist_for([everywhere, banners, one], "window:8")] == [1]
+
+
+def test_gate_strips_the_wake_word_from_cloud_transcripts_while_awake():
+    import asyncio
+
+    from pipecat.frames.frames import TranscriptionFrame
+    from processors.wake import WakeGate
+
+    async def go():
+        gate = WakeGate()
+        pushed = []
+        gate.push_frame = lambda frame, direction=None: pushed.append(frame) or asyncio.sleep(0)
+        gate._extend()  # awake
+        await gate.process_frame(TranscriptionFrame(text="Peekaboo, what time is it?", user_id="u", timestamp="t"), None)
+        await gate.process_frame(TranscriptionFrame(text="Peekable.", user_id="u", timestamp="t"), None)
+        texts = [f.text for f in pushed if isinstance(f, TranscriptionFrame)]
+        assert texts == ["what time is it?"]
+
+    asyncio.run(go())
