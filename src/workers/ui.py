@@ -51,9 +51,9 @@ terminal one", "this" against that state.
 The Timeline works by voice exactly as by mouse. It has a month calendar
 (days are buttons named "Tue 2 Sep: 8 memories"), the day's hours as tracks
 (hour labels are buttons named "10:00: 12 memories"; clicking one zooms into
-that hour, and zoomed in, the blocks on the track are buttons named
-"Ghostty 10:05–10:12: 7 memories" and a "Back to the whole day" button
-leaves the zoom), a "Selected …" line, and a strip of the
+that hour; zoomed in, the blocks on the track are buttons named
+"Ghostty 10:05–10:12: 7 memories", clicking one selects it and shows its
+memories in the strip, and a "Back to the whole day" button leaves the zoom), a "Selected …" line, and a strip of the
 selected memories (buttons named "<app> at <time>: <what was on screen>",
 the selected one tagged [selected]). Clicking a day, an hour, a block, or a
 strip memory does what a mouse click does; clicking the strip memory that is

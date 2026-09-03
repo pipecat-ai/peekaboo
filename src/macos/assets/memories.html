@@ -874,15 +874,16 @@ function hover(row, e) {
   });
 }
 
-// A click on a track means a time. The block under it (or the nearest one)
-// lays out its memories below, with the one closest to the click selected.
+// A click on a track means a time. In the day view it zooms into that hour
+// and selects the block clicked on (or the nearest one), whose memories lay
+// out below with the one closest to the click selected; zoomed in, it just
+// selects.
 async function scrub(row, e) {
   const track = e.currentTarget;
   const rect = track.getBoundingClientRect();
   const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
   const ts = row.start + frac * 3600;
   if (!row.blocks.length) return;
-  // The block clicked on, if any; else the nearest in the row.
   const minute = frac * 60;
   const hit = e.target.closest(".seg");
   let seg = hit ? row.blocks.find((b) => String(b.from) === hit.dataset.key) : null;
@@ -890,8 +891,22 @@ async function scrub(row, e) {
     const da = Math.min(Math.abs(a.from - minute), Math.abs(a.to + 1 - minute)), db = Math.min(Math.abs(b.from - minute), Math.abs(b.to + 1 - minute));
     return db < da ? b : a;
   });
+  if (zoomHour === null) {
+    zoomHour = row.hour;
+    await loadDay();
+    const zrow = dayTracks.hours.find((h) => h.hour === row.hour);
+    if (!zrow) return;
+    zrow.blocks = zrow.blocks || blocksOf(zrow);
+    zrow.frames = zrow.frames || dayFrames.filter((o) => o.ts >= zrow.start && o.ts < zrow.start + 3600);
+    const ztrack = document.querySelector(`.tl-row .track[data-hour="${row.hour}"]`);
+    await pinBlock(zrow, zrow.blocks.find((b) => b.from === seg.from) || seg, ts, ztrack);
+    return;
+  }
+  await pinBlock(row, seg, ts, track);
+}
+async function pinBlock(row, seg, ts, track) {
   document.querySelectorAll(".tl-row .seg.on").forEach((x) => x.classList.remove("on"));
-  track.querySelector(`.seg[data-key="${seg.from}"]`)?.classList.add("on");
+  track?.querySelector(`.seg[data-key="${seg.from}"]`)?.classList.add("on");
   if (tlRange) { tlRange = null; paintRange(); renderSelection(); }
   stripBlock = seg;
   stripItems = await call("get", { ids: seg.ids.slice(0, 200) });
@@ -901,8 +916,10 @@ async function scrub(row, e) {
   tlSelected = nearest;
   // The marker sits on the frame that was picked, not on empty time.
   document.querySelectorAll(".tl-row .marker, .tl-row .marker-label").forEach((m) => m.remove());
-  const x = ((nearest.ts - row.start) / 3600) * 100;
-  track.insertAdjacentHTML("beforeend", `<div class="marker" style="left:${x}%"></div><div class="marker-label" style="left:${x}%">${hhmmss(nearest.ts)}</div>`);
+  if (track) {
+    const x = ((nearest.ts - row.start) / 3600) * 100;
+    track.insertAdjacentHTML("beforeend", `<div class="marker" style="left:${x}%"></div><div class="marker-label" style="left:${x}%">${hhmmss(nearest.ts)}</div>`);
+  }
   renderStrip();
 }
 const STRIP_A11Y_MAX = 24;
