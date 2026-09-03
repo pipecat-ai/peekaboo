@@ -237,12 +237,12 @@
   .filter { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--faint); }
   .filter input { flex: 1; border: 0; outline: 0; font: inherit; background: transparent; color: var(--text); user-select: text; }
   .picker { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); overflow-y: auto; font-size: 12.5px; max-height: 230px; }
-  .picker .app { display: flex; align-items: center; gap: 8px; height: 28px; flex-shrink: 0; padding: 0 10px; font-weight: 600; border-top: 1px solid var(--line-soft); }
+  .picker .app { display: flex; align-items: center; gap: 8px; height: 26px; flex-shrink: 0; padding: 0 10px; font: 600 10.5px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border-top: 1px solid var(--line-soft); background: var(--side); }
   .picker .app:first-child { border-top: 0; }
   .picker .app .n { margin-left: auto; font: 10.5px var(--mono); color: var(--faint); }
   .picker .win { display: flex; align-items: center; height: 26px; flex-shrink: 0; padding: 0 10px 0 34px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .picker .sel { background: var(--accent); color: #fff; }
-  .picker .app.sel .n { color: #fff; }
+  .picker .win.screen { padding-left: 10px; gap: 8px; font-weight: 500; color: var(--text); } .picker .win.screen .appicon { width: 16px; height: 16px; border-radius: 4px; }
+  .picker .sel { background: var(--accent); color: #fff; } .picker .sel .n { color: rgba(255,255,255,.75); }
   .picker .app .appicon { width: 16px; height: 16px; border-radius: 4px; }
   .newpanel .hint { font-size: 11.5px; color: var(--faint); }
   .newpanel textarea { min-height: 40px; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--bg); font: inherit; resize: none; outline: 0; user-select: text; }
@@ -380,7 +380,7 @@
           <div class="eyebrow">Watch</div>
           <div class="filter"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9A9AA0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="wfilter" placeholder="Filter apps and windows"></div>
           <div class="picker" id="picker"></div>
-          <div class="hint">Pick an app to include windows it opens later.</div>
+          <div class="hint" id="wtarget">Watching the whole screen.</div>
         </div>
         <div class="field"><div class="eyebrow">Tell me when</div><textarea id="wcond" placeholder="the build finishes or fails"></textarea></div>
         <button class="btn primary start" id="startwatch">Start watching</button>
@@ -980,24 +980,35 @@ async function loadPicker() {
   await loadIcons(pickerData.map((a) => ({ app: a.app })));
   renderPicker();
 }
+// A watcher watches one window, or the whole screen. Apps are headings here,
+// not choices: picking one would silently mean its front window.
 function renderPicker() {
   const f = $("#wfilter").value.trim().toLowerCase();
   const p = $("#picker"); p.innerHTML = "";
+  if (!pickerSel) pickerSel = { screen: true };
+  const screenSel = !!pickerSel.screen;
+  if (!f || "the whole screen".includes(f)) {
+    p.insertAdjacentHTML("beforeend", `<div class="win screen${screenSel ? " sel" : ""}" data-screen="1">${appIcon("Screen")}<span>The whole screen</span><span class="n mono">everything visible</span></div>`);
+  }
   for (const a of pickerData) {
     const wins = a.windows.filter((w) => !f || a.app.toLowerCase().includes(f) || w.title.toLowerCase().includes(f));
     if (!wins.length) continue;
-    const appSel = pickerSel && pickerSel.app === a.app && !pickerSel.title;
-    p.insertAdjacentHTML("beforeend", `<div class="app${appSel ? " sel" : ""}" data-app="${esc(a.app)}">${appIcon(a.app)}<span>${esc(a.app)}</span><span class="n">${a.windows.length} window${a.windows.length === 1 ? "" : "s"}</span></div>`
-      + wins.map((w) => `<div class="win${pickerSel && pickerSel.app === a.app && pickerSel.title === w.title ? " sel" : ""}" data-app="${esc(a.app)}" data-title="${esc(w.title)}">${esc(w.title || "(untitled)")}${w.tabs ? `<span class="n mono" style="margin-left:auto;font-size:10.5px;color:var(--faint)">${w.tabs + 1} tabs</span>` : ""}</div>`).join(""));
+    p.insertAdjacentHTML("beforeend", `<div class="app" data-a11y-exclude>${appIcon(a.app)}<span>${esc(a.app)}</span><span class="n">${a.windows.length} window${a.windows.length === 1 ? "" : "s"}</span></div>`
+      + wins.map((w) => `<div class="win${pickerSel.app === a.app && pickerSel.title === w.title ? " sel" : ""}" data-app="${esc(a.app)}" data-title="${esc(w.title)}">${esc(w.title || "(untitled)")}${w.tabs ? `<span class="n mono" style="margin-left:6px">· ${w.tabs} tabs</span>` : ""}</div>`).join(""));
   }
-  p.querySelectorAll(".app").forEach((el) => { el.setAttribute("role", "button"); el.setAttribute("aria-label", `App ${el.dataset.app}`); el.onclick = () => { pickerSel = { app: el.dataset.app, title: null }; renderPicker(); }; });
-  p.querySelectorAll(".win").forEach((el) => { el.setAttribute("role", "button"); el.setAttribute("aria-label", `${el.dataset.app} window: ${el.dataset.title}`); el.onclick = () => { pickerSel = { app: el.dataset.app, title: el.dataset.title }; renderPicker(); }; });
+  p.querySelectorAll(".win").forEach((el) => {
+    el.setAttribute("role", "button");
+    el.setAttribute("aria-label", el.dataset.screen ? "The whole screen" : `${el.dataset.app} window: ${el.dataset.title}`);
+    el.setAttribute("aria-selected", el.classList.contains("sel") ? "true" : "false");
+    el.onclick = () => { pickerSel = el.dataset.screen ? { screen: true } : { app: el.dataset.app, title: el.dataset.title }; renderPicker(); };
+  });
+  $("#wtarget").textContent = screenSel ? "Watching the whole screen." : `Watching the ${pickerSel.app} window “${pickerSel.title || "(untitled)"}”. Only that window.`;
 }
 $("#wfilter").addEventListener("input", renderPicker);
 $("#startwatch").onclick = async () => {
   const cond = $("#wcond").value.trim();
   if (!cond) { $("#wcond").focus(); return; }
-  const target = pickerSel ? (pickerSel.title || pickerSel.app) : "";
+  const target = pickerSel && !pickerSel.screen ? pickerSel.title : "";
   $("#startwatch").disabled = true;
   try { await call("watch", { condition: cond, target }); } finally { $("#startwatch").disabled = false; }
   $("#wcond").value = ""; pickerSel = null; renderPicker(); loadWatchers();
