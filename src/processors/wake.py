@@ -203,6 +203,10 @@ class WakeGate(FrameProcessor):
         if self._monitor is None:
             self._monitor = self.create_task(self._watch_window(), name="wake-window")
 
+    async def sleep(self):
+        """Go to sleep now, whatever the window: the microphone was muted."""
+        await self._sleep()
+
     async def _sleep(self):
         if not self.awake:
             return

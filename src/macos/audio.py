@@ -237,6 +237,7 @@ class MacAudioInputTransport(BaseInputTransport):
         self._engine = engine
         self._on_ready = on_ready
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._muted = False
         self._resampler = create_stream_resampler()
         self._queue: Optional[asyncio.Queue] = None
         self._task: Optional[asyncio.Task] = None
@@ -284,8 +285,13 @@ class MacAudioInputTransport(BaseInputTransport):
 
     def _on_audio(self, pcm: bytes, rate: int):
         # On the loop, called from the tap via call_soon_threadsafe.
-        if self._queue:
+        if self._queue and not self._muted:
             self._queue.put_nowait((pcm, rate))
+
+    def set_muted(self, muted: bool):
+        """Drop the microphone at the source: nothing reaches the recognizers
+        while muted. The engine keeps running so speech still plays."""
+        self._muted = muted
 
     async def _drain(self):
         chunk_bytes = int(self.sample_rate * TAP_BUFFER_SECS) * 2
@@ -391,6 +397,10 @@ class MacAudioTransport(BaseTransport):
     def receive_message(self, message: dict):
         """A message from the client, from any thread."""
         self.input().receive_message(message)  # type: ignore[attr-defined]
+
+    def set_muted(self, muted: bool):
+        """Mute or unmute the microphone."""
+        self.input().set_muted(muted)  # type: ignore[attr-defined]
 
     def _deliver(self, message: dict):
         if self._send_to_client:

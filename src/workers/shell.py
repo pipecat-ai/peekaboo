@@ -12,7 +12,7 @@ from collections import Counter
 import time
 import webbrowser
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from loguru import logger
 from pipecat.bus.messages import (
@@ -72,6 +72,7 @@ class ShellWorker(BaseUIWorker):
         screen_worker: str = SCREEN_WORKER,
         history_worker: str = HISTORY_WORKER,
         voice_worker: str = VOICE_WORKER,
+        on_listen: Optional[Callable[[bool], Awaitable[None]]] = None,
         **kwargs,
     ):
         super().__init__(name=SHELL_WORKER, **kwargs)
@@ -84,7 +85,9 @@ class ShellWorker(BaseUIWorker):
         self._screen_worker = screen_worker
         self._history_worker = history_worker
         self._voice_worker = voice_worker
+        self._on_listen = on_listen
         self._paused = False
+        self._listening = True
         self._watcher_count = 0
         self._last_watchers: Optional[str] = None
         self._disk: tuple[float, int] = (0.0, 0)
@@ -126,6 +129,14 @@ class ShellWorker(BaseUIWorker):
             logger.warning(f"{self}: capture {action} failed: {e}")
         logger.info(f"{self}: {'paused' if paused else 'resumed'}")
         self._menubar.set_paused(paused)
+        self._push("status")
+
+    async def listen(self, on: bool):
+        """Mute or unmute the microphone, from the menu or the window."""
+        self._listening = on
+        if self._on_listen:
+            await self._on_listen(on)
+        self._menubar.set_listening(on)
         self._push("status")
 
     async def unwatch(self, watcher_id: int):
@@ -312,12 +323,17 @@ class ShellWorker(BaseUIWorker):
             "today": sum(h.count for h in coverage.hours),
             "bytes": self._disk[1],
             "paused": self._paused,
+            "listening": self._listening,
             "watching": self._watcher_count,
         }
 
     async def _rpc_pause(self, paused: bool):
         await self.pause(bool(paused))
         return {"paused": self._paused}
+
+    async def _rpc_listen(self, on: bool):
+        await self.listen(bool(on))
+        return {"listening": self._listening}
 
     async def _rpc_month(self, year: int, month: int):
         """Memories per day in a month, for the timeline's calendar."""

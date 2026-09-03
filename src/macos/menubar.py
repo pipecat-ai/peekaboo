@@ -72,6 +72,9 @@ class _Target(NSObject):
     """Receives menu actions. Selectors only; the logic lives in MenuBar."""
 
 
+    def listen_(self, sender):
+        self._menubar._toggle_listen()
+
     def initWithMenuBar_(self, menubar):
         self = objc.super(_Target, self).init()
         if self is None:
@@ -105,11 +108,14 @@ class MenuBar:
         *,
         on_pause: Callable[[bool], None],
         on_quit: Callable[[], None],
+        on_listen: Optional[Callable[[bool], None]] = None,
         on_unwatch: Callable[[int], None],
         on_search: Optional[Callable[[], None]] = None,
         on_open_recent: Optional[Callable[[int], None]] = None,
     ):
         self._on_pause = on_pause
+        self._on_listen = on_listen
+        self._listening = True
         self._on_quit = on_quit
         self._on_unwatch = on_unwatch
         self._on_search = on_search
@@ -131,6 +137,7 @@ class MenuBar:
         self._add(self._menu, "Open Peekaboo", "search:", key="o").setEnabled_(on_search is not None)
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
         self._pause_item = self._add(self._menu, "Pause recording", "pause:")
+        self._listen_item = self._add(self._menu, "Pause listening", "listen:")
         self._menu.addItem_(AppKit.NSMenuItem.separatorItem())
         self._watching_item = self._add(self._menu, "Watching", None)
         self._watching_menu = AppKit.NSMenu.alloc().init()
@@ -159,8 +166,12 @@ class MenuBar:
             return
         shown = "paused" if self._paused and self._state == "idle" else self._state
         button = self._item.button()
-        button.setToolTip_(STATE_TOOLTIP.get(shown, "Peekaboo"))
-        button.setAppearsDisabled_(shown == "paused")
+        tooltip = STATE_TOOLTIP.get(shown, "Peekaboo")
+        if not self._listening:
+            tooltip += " — not listening"
+        button.setToolTip_(tooltip)
+        # Dimmed when it neither records nor listens.
+        button.setAppearsDisabled_(shown == "paused" and not self._listening)
         kind = STATE_DOT.get(self._state)
         if kind not in self._icons:
             self._icons[kind] = _icon_with_dot(kind)
@@ -185,6 +196,16 @@ class MenuBar:
         def go():
             self._state = state
             self._apply_state()
+
+        AppHelper.callAfter(go)
+
+    def set_listening(self, on: bool):
+        """Reflect the microphone state chosen elsewhere (the memories window)."""
+
+        def go():
+            self._listening = on
+            self._listen_item.setTitle_("Pause listening" if on else "Resume listening")
+            self.set_state(self._state)
 
         AppHelper.callAfter(go)
 
@@ -242,6 +263,13 @@ class MenuBar:
         self._pause_item.setTitle_("Start recording" if self._paused else "Pause recording")
         self.set_state(self._state)
         self._on_pause(self._paused)
+
+    def _toggle_listen(self):
+        self._listening = not self._listening
+        self._listen_item.setTitle_("Pause listening" if self._listening else "Resume listening")
+        self.set_state(self._state)
+        if self._on_listen:
+            self._on_listen(self._listening)
 
 
 def _short(text: str, n: int) -> str:

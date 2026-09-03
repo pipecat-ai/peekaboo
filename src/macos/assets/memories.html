@@ -69,6 +69,8 @@
   #status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
   #status .dot.paused { background: var(--faint); }
   #status .stats { font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #status .row2 { display: flex; gap: 6px; } #status .row2 .btn { flex: 1; justify-content: center; padding: 0 8px; }
+  #status .btn.off { background: var(--accent); color: #fff; border-color: var(--accent); }
   #status .btn { justify-content: center; height: 26px; }
 
   /* Main */
@@ -291,9 +293,14 @@
   <div id="status">
     <div class="rec"><div class="dot" id="recdot"></div><span id="rectext">Recording</span></div>
     <div class="stats" id="stats">…</div>
-    <button class="btn" id="pause">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 5v14M16 5v14"/></svg><span>Pause</span>
-    </button>
+    <div class="row2">
+      <button class="btn" id="pause">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 5v14M16 5v14"/></svg><span>Pause</span>
+      </button>
+      <button class="btn" id="listen" title="Pause listening">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Mute</span>
+      </button>
+    </div>
   </div>
 </nav>
 
@@ -1160,12 +1167,18 @@ async function loadStatus() {
   }
   lastToday = s.today;
   $("#recdot").classList.toggle("paused", paused);
-  $("#rectext").textContent = (paused ? "Not recording" : "Recording") + (s.watching ? ` · watching ${s.watching}` : "");
+  listening = s.listening !== false;
+  $("#rectext").textContent = (paused ? "Not recording" : "Recording") + (listening ? "" : " · muted") + (s.watching ? ` · watching ${s.watching}` : "");
+  $("#listen span").textContent = listening ? "Mute" : "Unmute";
+  $("#listen").title = listening ? "Pause listening" : "Resume listening";
+  $("#listen").classList.toggle("off", !listening);
   $("#stats").textContent = `${s.today.toLocaleString()} memories · ${(s.bytes / 1048576).toFixed(0)} MB`;
   $("#pause span").textContent = paused ? "Start recording" : "Pause";
   $("#wcount").textContent = s.watching ? String(s.watching) : "";
 }
 $("#pause").onclick = async () => { await call("pause", { paused: !paused }); loadStatus(); };
+let listening = true;
+$("#listen").onclick = async () => { await call("listen", { on: !listening }); loadStatus(); };
 
 // ---- window drag --------------------------------------------------------
 // The web view owns the mouse, so the chrome (sidebar, screen headers) hands

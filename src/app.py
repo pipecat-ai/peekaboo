@@ -80,6 +80,10 @@ class App:
         if self.shell:
             asyncio.run_coroutine_threadsafe(self.shell.pause(paused), self.loop)
 
+    def on_listen(self, on: bool):
+        if self.shell:
+            asyncio.run_coroutine_threadsafe(self.shell.listen(on), self.loop)
+
     def on_unwatch(self, watcher_id: int):
         if self.shell:
             asyncio.run_coroutine_threadsafe(self.shell.unwatch(watcher_id), self.loop)
@@ -140,7 +144,9 @@ class App:
         # voice pipeline carries audio only. Signals are AppKit's business on
         # the main thread, so the runner leaves SIGINT alone.
         self.runner = WorkerRunner(handle_sigint=False)
-        self.shell = ShellWorker(menubar=self.menubar, store=store, memories=self.memories, registry=registry)
+        self.shell = ShellWorker(
+            menubar=self.menubar, store=store, memories=self.memories, registry=registry, on_listen=lambda on: voice.set_listening(on)
+        )
         voice = VoiceWorker(
             transport,
             screen_from_transport=False,
@@ -354,6 +360,7 @@ def main() -> int:
     app.memories = MemoriesWindow(store_root=args.store, loop=loop)
     app.menubar = MenuBar(
         on_pause=app.on_pause,
+        on_listen=app.on_listen,
         on_quit=app.on_quit,
         on_unwatch=app.on_unwatch,
         on_search=app.on_search,

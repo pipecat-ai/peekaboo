@@ -447,6 +447,14 @@ class VoiceWorker(PipelineWorker):
             stage.append(self._wake_gate)
         return [*stage, tts]
 
+    async def set_listening(self, on: bool):
+        """Mute or unmute the microphone. Muting also puts the wake gate to
+        sleep, so the cloud recognizer disconnects and nothing is heard."""
+        self._transport.set_muted(not on)
+        if not on and self._wake_gate is not None:
+            await self._wake_gate.sleep()
+        logger.info(f"{self}: {'listening' if on else 'not listening'}")
+
     async def _on_wake(self):
         if self._cloud_stt:
             await self._cloud_stt.wake()
