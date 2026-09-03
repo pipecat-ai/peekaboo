@@ -105,6 +105,12 @@ class App:
     async def run_workers(self) -> int:
         perms = await permissions.request_all()
         if not perms.all_granted:
+            if permissions.bundled() and perms.microphone and not perms.screen_recording:
+                # The prompt is up. When the user allows, the grant only
+                # applies to a fresh process, so wait for it and relaunch.
+                logger.info("waiting for Screen Recording to be allowed")
+                if await permissions.wait_for_screen_recording():
+                    permissions.relaunch()
             return 1
 
         store = SQLiteStore(root=self.args.store)
@@ -220,6 +226,10 @@ class _Delegate(NSObject):
         icon = AppKit.NSImage.alloc().initWithContentsOfFile_(str(APP_ICON))
         if icon is not None:
             AppKit.NSApp.setApplicationIconImage_(icon)
+        # The status item goes in now: created earlier it can land off
+        # screen when LaunchServices starts the app.
+        if self._app.menubar is not None:
+            self._app.menubar.install()
 
     def applicationShouldTerminate_(self, sender):
         if self.workers is None or self.workers.done():

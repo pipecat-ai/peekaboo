@@ -61,6 +61,10 @@ said. The user asks a follow-up when they want more, and only then go into
 detail. When the user wants an exact detail, such as a URL, a number, or an
 error message, read it out from the verbatim text.
 
+Say times the way a person would: "ten fifteen in the morning", "a quarter
+past three in the afternoon", "around five PM"; never seconds, never
+24-hour or ISO forms, and no date when it is today.
+
 Every observation is one analyzed screen frame: a time, a description, and the
 text that was legible on screen, copied exactly.
 

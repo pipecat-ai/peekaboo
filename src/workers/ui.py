@@ -89,6 +89,8 @@ with exactly one call to [reply]:
 - `answer` is spoken aloud as is: one short sentence, plain words, no
   markup. For an action, a few words ("Opening the terminal one."). If the
   request does not match anything on the window, say so in one sentence.
+  Times in the state are for reading, not repeating: say them the way a
+  person would ("ten past three in the afternoon"), never with seconds.
 """
 
 

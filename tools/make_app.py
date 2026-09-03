@@ -19,7 +19,12 @@ dependencies change. Packaging with everything inside is a later step.
     uv run tools/make_app.py            # writes dist/Peekaboo.app
     open dist/Peekaboo.app              # launch it like any app
 
-The launcher appends the app's log to ~/Library/Logs/Peekaboo.log.
+The app's log goes to ~/Library/Logs/Peekaboo.log.
+
+The bundle is signed with a local certificate, "Peekaboo Dev", created in the
+login keychain on first use, so the privacy database keeps recognising the
+app across rebuilds. Grant Screen Recording and the microphone to Peekaboo
+once; they stay granted.
 """
 
 import plistlib
@@ -36,12 +41,29 @@ ICON_PNG = ROOT / "src" / "macos" / "assets" / "appicon.png"
 BUNDLE_ID = "ai.pipecat.peekaboo"
 NAME = "Peekaboo"
 
-LAUNCHER = """#!/bin/zsh
-# Peekaboo development launcher: the bundle's own interpreter, the checkout's code.
-DIR="${{0:A:h}}"
-cd "{root}" || exit 1
-mkdir -p "$HOME/Library/Logs"
-exec "$DIR/python" src/app.py "$@" >> "$HOME/Library/Logs/Peekaboo.log" 2>&1
+# The bundle's executable is the interpreter itself, under the app's name:
+# the window server places a status item by the app's declared executable,
+# and a shell script that execs into Python left the item parked at the
+# origin (M6 finding). With no script to pass, the app is started from a
+# ``sitecustomize`` module that Python imports at startup, found through
+# ``PYTHONPATH`` set in the bundle's ``LSEnvironment``.
+SITECUSTOMIZE = """# Peekaboo development bundle: start the app when the interpreter is run bare.
+import os
+import runpy
+import sys
+
+root = os.environ.get("PEEKABOO_ROOT")
+if root and not sys.argv[1:]:
+    os.chdir(root)
+    log_dir = os.path.expanduser("~/Library/Logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log = open(os.path.join(log_dir, "Peekaboo.log"), "a", buffering=1)
+    sys.stdout = sys.stderr = log
+    # PEEKABOO_MAIN overrides the entry script, for probing the bundle.
+    sys.argv = [os.environ.get("PEEKABOO_MAIN") or os.path.join(root, "src", "app.py")]
+    sys.path.insert(0, os.path.join(root, "src"))
+    runpy.run_path(sys.argv[0], run_name="__main__")
+    sys.exit(0)
 """
 
 
@@ -72,6 +94,45 @@ def interpreter() -> Path:
     return real if real.exists() else stub
 
 
+SIGNING_IDENTITY = "Peekaboo Dev"
+
+
+def signing_identity() -> str:
+    """The local code-signing certificate, made if it does not exist yet;
+    ad hoc ("-") if that fails."""
+    found = subprocess.run(["security", "find-identity", "-v", "-p", "codesigning"], capture_output=True, text=True).stdout
+    if SIGNING_IDENTITY in found:
+        return SIGNING_IDENTITY
+    work = DIST / "signing"
+    work.mkdir(parents=True, exist_ok=True)
+    cnf = work / "ext.cnf"
+    cnf.write_text(
+        "[req]\ndistinguished_name = dn\nx509_extensions = v3\nprompt = no\n"
+        f"[dn]\nCN = {SIGNING_IDENTITY}\n"
+        "[v3]\nkeyUsage = critical, digitalSignature\nextendedKeyUsage = critical, codeSigning\n"
+        "basicConstraints = critical, CA:false\nsubjectKeyIdentifier = hash\n"
+    )
+    keychain = str(Path.home() / "Library" / "Keychains" / "login.keychain-db")
+    try:
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650", "-keyout", str(work / "key.pem"), "-out", str(work / "cert.pem"), "-config", str(cnf)],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["openssl", "pkcs12", "-export", "-legacy", "-inkey", str(work / "key.pem"), "-in", str(work / "cert.pem"), "-out", str(work / "dev.p12"), "-passout", "pass:peekaboo", "-name", SIGNING_IDENTITY],
+            check=True, capture_output=True,
+        )
+        subprocess.run(["security", "import", str(work / "dev.p12"), "-k", keychain, "-P", "peekaboo", "-T", "/usr/bin/codesign", "-T", "/usr/bin/security"], check=True, capture_output=True)
+        subprocess.run(["security", "add-trusted-cert", "-r", "trustRoot", "-p", "codeSign", "-k", keychain, str(work / "cert.pem")], check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        print(f"could not make a signing certificate ({e}); signing ad hoc", file=sys.stderr)
+        return "-"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    found = subprocess.run(["security", "find-identity", "-v", "-p", "codesigning"], capture_output=True, text=True).stdout
+    return SIGNING_IDENTITY if SIGNING_IDENTITY in found else "-"
+
+
 def main():
     venv = ROOT / ".venv"
     if not (venv / "pyvenv.cfg").exists():
@@ -83,15 +144,13 @@ def main():
     macos.mkdir(parents=True)
     resources.mkdir(parents=True)
 
-    launcher = macos / NAME
-    launcher.write_text(LAUNCHER.format(root=str(ROOT)))
-    launcher.chmod(0o755)
-
-    # The interpreter, inside the bundle, running the checkout's environment.
-    shutil.copy2(interpreter(), macos / "python")
-    (macos / "python").chmod(0o755)
+    # The interpreter, inside the bundle under the app's name, running the
+    # checkout's environment.
+    shutil.copy2(interpreter(), macos / NAME)
+    (macos / NAME).chmod(0o755)
     shutil.copy2(venv / "pyvenv.cfg", APP / "Contents" / "pyvenv.cfg")
     (APP / "Contents" / "lib").symlink_to(venv / "lib", target_is_directory=True)
+    (resources / "sitecustomize.py").write_text(SITECUSTOMIZE)
 
     make_icns(ICON_PNG, resources / "AppIcon.icns")
 
@@ -113,19 +172,24 @@ def main():
         "NSMicrophoneUsageDescription": "Peekaboo listens for its name and for what you ask it.",
         "NSSpeechRecognitionUsageDescription": "Peekaboo turns what you say into requests.",
         "NSAppleEventsUsageDescription": "Peekaboo opens meeting links in your browser.",
+        # How the bare interpreter finds and starts the app (see SITECUSTOMIZE).
+        "LSEnvironment": {"PYTHONPATH": str(resources), "PEEKABOO_ROOT": str(ROOT)},
     }
     with (APP / "Contents" / "Info.plist").open("wb") as f:
         plistlib.dump(info, f)
     (APP / "Contents" / "PkgInfo").write_text("APPL????")
-    # An ad-hoc signature gives the bundle a stable identity for the privacy
-    # database, so permissions granted to Peekaboo stay with Peekaboo.
-    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(APP)], check=True, capture_output=True)
+    # Signed with a local certificate so the privacy database recognises the
+    # app across rebuilds: an ad-hoc signature changes with every build, and
+    # each build then had to be granted Screen Recording and the microphone
+    # again. The certificate is created on first use.
+    identity = signing_identity()
+    subprocess.run(["codesign", "--force", "--deep", "--sign", identity, str(APP)], check=True, capture_output=True)
     # LaunchServices keeps the previous build's registration for the same
     # path and then refuses to open the new one (error -600) until told.
     lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
     if Path(lsregister).exists():
         subprocess.run([lsregister, "-f", str(APP)], check=False, capture_output=True)
-    print(f"built {APP.relative_to(ROOT)} around {ROOT} with {interpreter()}")
+    print(f"built {APP.relative_to(ROOT)} around {ROOT} with {interpreter()}, signed as {identity}")
     return 0
 
 

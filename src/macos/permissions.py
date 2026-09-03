@@ -35,17 +35,45 @@ class Permissions:
 
     def missing(self) -> list[str]:
         """Human guidance for each grant we lack, one line per permission."""
+        who = "Peekaboo" if bundled() else "your terminal"
         out = []
         if not self.screen_recording:
-            out.append(
-                "Screen Recording: enable it for your terminal, then relaunch the "
-                f"terminal. {SCREEN_RECORDING_PANE}"
-            )
+            out.append(f"Screen Recording: enable it for {who}, then relaunch it. {SCREEN_RECORDING_PANE}")
         if not self.microphone:
-            out.append(
-                f"Microphone: enable it for your terminal, then relaunch the terminal. {MICROPHONE_PANE}"
-            )
+            out.append(f"Microphone: enable it for {who}, then relaunch it. {MICROPHONE_PANE}")
         return out
+
+
+def bundled() -> bool:
+    """Running from a Peekaboo.app bundle rather than a terminal."""
+    import AppKit
+
+    path = str(AppKit.NSBundle.mainBundle().bundlePath() or "")
+    return path.endswith("Peekaboo.app")
+
+
+async def wait_for_screen_recording(timeout_secs: float = 600.0, every: float = 2.0) -> bool:
+    """Poll until Screen Recording is granted (the user clicked Allow or
+    flipped the switch), or give up."""
+    waited = 0.0
+    while waited < timeout_secs:
+        if screen_recording_granted():
+            return True
+        await asyncio.sleep(every)
+        waited += every
+    return False
+
+
+def relaunch():
+    """Start a fresh copy of this bundle and let this one quit: a Screen
+    Recording grant only applies to a process started after it."""
+    import subprocess
+
+    import AppKit
+
+    path = str(AppKit.NSBundle.mainBundle().bundlePath())
+    logger.info(f"relaunching {path} so the grant applies")
+    subprocess.Popen(["open", "-n", path])
 
 
 def screen_recording_granted() -> bool:
