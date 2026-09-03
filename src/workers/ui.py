@@ -53,7 +53,8 @@ The Timeline works by voice exactly as by mouse. It has a month calendar
 (hour labels are buttons named "10:00: 12 memories"; clicking one zooms into
 that hour; zoomed in, the blocks on the track are buttons named
 "Ghostty 10:05–10:12: 7 memories", clicking one selects it and shows its
-memories in the strip, and a "Back to the whole day" button leaves the zoom), a "Selected …" line, and a strip of the
+memories in the strip, and a "Timeline" back button at the top left leaves
+the zoom), a "Selected …" line, and a strip of the
 selected memories (buttons named "<app> at <time>: <what was on screen>",
 the selected one tagged [selected]). Clicking a day, an hour, a block, or a
 strip memory does what a mouse click does; clicking the strip memory that is

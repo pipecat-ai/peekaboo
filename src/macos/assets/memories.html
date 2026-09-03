@@ -337,9 +337,10 @@
   <!-- Timeline -->
   <section class="screen" id="timeline" aria-label="Timeline">
     <div class="head" data-drag>
-      <div class="left"><h1>Timeline</h1>
+      <div class="left">
+        <span class="btn small" id="tlback" hidden role="button" aria-label="Back to the Timeline"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>Timeline</span>
+        <h1 id="tltitle">Timeline</h1>
         <div class="daypick"><span class="arrow" id="prevday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></span><span class="label" id="daylabel" role="button" aria-haspopup="true" title="Pick a day"></span><span class="arrow" id="nextday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
-        <span class="btn small" id="unzoom" hidden role="button" aria-label="Back to the whole day"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span id="unzoomlabel">Back to the day</span></span>
         <!-- The month, as a dropdown from the day: which days hold memories, and how many. -->
         <div class="calpop" id="calpop" hidden>
           <div class="calhead">
@@ -635,8 +636,8 @@ async function loadDay() {
   const today = dayISO(new Date()) === day;
   $("#daylabel").textContent = (today ? "Today, " : "") + d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
   $("#daylabel").setAttribute("aria-label", `Day: ${$("#daylabel").textContent}. Opens the calendar`);
-  $("#unzoom").hidden = zoomHour === null;
-  if (zoomHour !== null) $("#unzoomlabel").textContent = `Back to the day (zoomed into ${pad(zoomHour)}:00)`;
+  $("#tlback").hidden = zoomHour === null;
+  $("#tltitle").textContent = zoomHour === null ? "Timeline" : `${pad(zoomHour)}:00`;
   $("#nextday").style.opacity = today ? .4 : 1;
   const [tracks, frames] = await Promise.all([call("day_tracks", { date: day }), call("day_frames", { date: day })]);
   dayFrames = frames;
@@ -735,7 +736,7 @@ function gotoDay(iso) {
 }
 function shiftDay(days) { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + days); gotoDay(dayISO(d)); }
 function shiftMonth(months) { const d = new Date(calMonth.y, calMonth.m - 1 + months, 1); calMonth = { y: d.getFullYear(), m: d.getMonth() + 1 }; loadCal(); }
-$("#unzoom").onclick = () => { zoomHour = null; loadDay(); };
+$("#tlback").onclick = () => { zoomHour = null; loadDay(); };
 $("#prevmonth").onclick = () => shiftMonth(-1);
 $("#nextmonth").onclick = () => shiftMonth(1);
 $("#gotoday").onclick = () => gotoDay(dayISO(new Date()));
