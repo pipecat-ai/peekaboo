@@ -50,7 +50,9 @@ NOTIFICATION_WATCH = WatchItem(
     query=(
         "A notification, banner, alert, or popup about a meeting, call, or scheduled "
         "event that is starting soon or now, from a calendar app, Zoom, Meet, Teams, "
-        "Slack, or similar. Report its title, its time, and any visible join link."
+        "Slack, or similar. Report its title, its time, and any visible join link. "
+        "Not deliveries, orders, shipping, news, chat messages, or other notifications "
+        "that are not an event with a start time."
     ),
 )
 

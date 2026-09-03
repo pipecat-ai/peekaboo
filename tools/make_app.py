@@ -120,6 +120,11 @@ def main():
     # An ad-hoc signature gives the bundle a stable identity for the privacy
     # database, so permissions granted to Peekaboo stay with Peekaboo.
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(APP)], check=True, capture_output=True)
+    # LaunchServices keeps the previous build's registration for the same
+    # path and then refuses to open the new one (error -600) until told.
+    lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    if Path(lsregister).exists():
+        subprocess.run([lsregister, "-f", str(APP)], check=False, capture_output=True)
     print(f"built {APP.relative_to(ROOT)} around {ROOT} with {interpreter()}")
     return 0
 
