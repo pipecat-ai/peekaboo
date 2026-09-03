@@ -10,10 +10,11 @@ The bundle is what gives the process an identity: its own name and icon in
 ⌘-Tab and the Dock, and its own row in Privacy & Security instead of the
 terminal's. AppKit takes both from the bundle that holds the running
 executable, so the interpreter itself must live in the bundle: a copy of
-the framework's Python binary sits in ``Contents/MacOS``, with a
-``pyvenv.cfg`` beside it and ``Contents/lib`` pointing at this checkout's
-``.venv``, so it is the project's environment under another roof. The
-models and the code stay in the repository; run ``uv sync`` when
+the framework's Python binary sits in ``Contents/MacOS`` and a
+``sitecustomize`` module adds this checkout's ``.venv`` packages, so it is
+the project's environment under another roof. Nothing in the bundle points
+outside it, which keeps the code seal, and with it the permission grants,
+valid. The models and the code stay in the repository; run ``uv sync`` when
 dependencies change. Packaging with everything inside is a later step.
 
     uv run tools/make_app.py            # writes dist/Peekaboo.app
@@ -53,6 +54,12 @@ import runpy
 import sys
 
 root = os.environ.get("PEEKABOO_ROOT")
+if root:
+    # The checkout's environment, without a venv layout in the bundle: a
+    # symlink to it inside the bundle broke the code seal.
+    import site
+
+    site.addsitedir(os.path.join(root, ".venv", "lib", "python%d.%d" % sys.version_info[:2], "site-packages"))
 if root and not sys.argv[1:]:
     os.chdir(root)
     log_dir = os.path.expanduser("~/Library/Logs")
@@ -144,12 +151,12 @@ def main():
     macos.mkdir(parents=True)
     resources.mkdir(parents=True)
 
-    # The interpreter, inside the bundle under the app's name, running the
-    # checkout's environment.
+    # The interpreter, inside the bundle under the app's name. It finds its
+    # standard library through the framework it is linked against; the
+    # checkout's packages are added by sitecustomize. Nothing in the bundle
+    # points outside it, so the code seal stays valid.
     shutil.copy2(interpreter(), macos / NAME)
     (macos / NAME).chmod(0o755)
-    shutil.copy2(venv / "pyvenv.cfg", APP / "Contents" / "pyvenv.cfg")
-    (APP / "Contents" / "lib").symlink_to(venv / "lib", target_is_directory=True)
     (resources / "sitecustomize.py").write_text(SITECUSTOMIZE)
 
     make_icns(ICON_PNG, resources / "AppIcon.icns")
@@ -173,7 +180,9 @@ def main():
         "NSSpeechRecognitionUsageDescription": "Peekaboo turns what you say into requests.",
         "NSAppleEventsUsageDescription": "Peekaboo opens meeting links in your browser.",
         # How the bare interpreter finds and starts the app (see SITECUSTOMIZE).
-        "LSEnvironment": {"PYTHONPATH": str(resources), "PEEKABOO_ROOT": str(ROOT)},
+        # PYTHONDONTWRITEBYTECODE: a .pyc written into Resources after signing
+        # would break the seal, and with it the permission grants.
+        "LSEnvironment": {"PYTHONPATH": str(resources), "PEEKABOO_ROOT": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1"},
     }
     with (APP / "Contents" / "Info.plist").open("wb") as f:
         plistlib.dump(info, f)
