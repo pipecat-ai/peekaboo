@@ -41,19 +41,22 @@ FRAME_TIMEOUT_SECS = 8.0
 # A watched window has to stay out of sight this long before it is mentioned.
 STALE_ANNOUNCE_SECS = 15.0
 
-# Always on the watchlist, as item 0 on every target: the reminders the OS and
-# other apps put on screen. A hit becomes a meeting moment for whoever
-# subscribed.
+# Always on the watchlist, as item 0: the reminders the OS and other apps put
+# on screen. It looks at notification banners (their own window, cropped) and
+# at the screen when that is what is being analysed, never at ordinary window
+# content: an email or a chat about an event is not a reminder. A hit becomes
+# a meeting moment for whoever subscribed.
 NOTIFICATION_WATCH_ID = 0
 NOTIFICATION_WATCH = WatchItem(
     id=NOTIFICATION_WATCH_ID,
     query=(
-        "A notification, banner, alert, or popup about a meeting, call, or scheduled "
+        "A notification banner, alert, or popup about a meeting, call, or scheduled "
         "event that is starting soon or now, from a calendar app, Zoom, Meet, Teams, "
         "Slack, or similar. Report its title, its time, and any visible join link. "
-        "Not deliveries, orders, shipping, news, chat messages, or other notifications "
-        "that are not an event with a start time."
+        "Not deliveries, orders, shipping, news, and not an email or a chat message "
+        "that merely mentions an event: only a reminder that has popped up."
     ),
+    target=("banner", "screen"),
 )
 
 
@@ -82,7 +85,8 @@ class Watcher:
 WATCHERS_FILE = "watchers.json"
 
 # The same notification is not announced again within this window.
-NOTIFICATION_DEDUP_SECS = 10 * 60
+NOTIFICATION_DEDUP_SECS = 6 * 60 * 60
+ANNOUNCED_FILE = "announced.json"
 
 FRAME_JPEG_QUALITY = 80
 
@@ -240,7 +244,6 @@ class ScreenWorker(PipelineWorker):
         self._restored = False
         # Who wants on-screen reminders, and which were announced recently.
         self._subscribers: list[str] = []
-        self._announced: dict[str, float] = {}
         # The latest frame seen per target, and who is waiting for the next one.
         self._latest: dict[str, ScreenFrame] = {}
         self._waiting: dict[str, list[asyncio.Future]] = {}
@@ -706,19 +709,32 @@ class ScreenWorker(PipelineWorker):
             )
             await self._remove_watcher(watcher, reason=reason)
 
+    def _load_announced(self) -> dict[str, float]:
+        try:
+            return {str(k): float(v) for k, v in json.loads((self._store.root / ANNOUNCED_FILE).read_text()).items()}
+        except (OSError, ValueError, AttributeError):
+            return {}
+
+    def _save_announced(self, announced: dict[str, float]):
+        try:
+            (self._store.root / ANNOUNCED_FILE).write_text(json.dumps(announced))
+        except OSError as e:
+            logger.warning(f"{self}: could not save announced reminders: {e}")
+
     async def _on_notification(self, text: str, verbatim: list):
         if not text or not self._subscribers:
             return
 
-        # The same banner seen again, or still on screen, is one reminder.
+        # The same banner seen again, still on screen, or seen before a
+        # restart, is one reminder: what was announced is kept on disk.
         key = " ".join(text.lower().split())[:80]
-        now = time.monotonic()
-        self._announced = {
-            k: t for k, t in self._announced.items() if now - t < NOTIFICATION_DEDUP_SECS
-        }
-        if key in self._announced:
+        now = time.time()
+        announced = self._load_announced()
+        announced = {k: t for k, t in announced.items() if now - t < NOTIFICATION_DEDUP_SECS}
+        if key in announced:
             return
-        self._announced[key] = now
+        announced[key] = now
+        self._save_announced(announced)
 
         moment = {
             "kind": "meeting",

@@ -8,7 +8,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Union
 
 from loguru import logger
 from PIL import Image
@@ -45,13 +45,20 @@ class WatchItem:
 
     id: int
     query: str
-    target: Optional[str] = None
-    """The frame target this applies to; None means every target."""
+    target: Optional[Union[str, tuple[str, ...]]] = None
+    """The frame target this applies to, or several; None means every target."""
+
+    def applies_to(self, target: str) -> bool:
+        if self.target is None:
+            return True
+        if isinstance(self.target, tuple):
+            return target in self.target
+        return self.target == target
 
 
 def watchlist_for(items: Iterable[WatchItem], target: str) -> list[WatchItem]:
     """The items a frame of ``target`` is checked against, in id order."""
-    return sorted((i for i in items if i.target is None or i.target == target), key=lambda i: i.id)
+    return sorted((i for i in items if i.applies_to(target)), key=lambda i: i.id)
 
 
 @dataclass

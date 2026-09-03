@@ -324,3 +324,14 @@ def test_processor_skips_the_frame_described_before_a_restart(tmp_path):
             await store.close()
 
     asyncio.run(go())
+
+
+def test_watch_items_can_apply_to_several_targets():
+    from processors.vision import WatchItem, watchlist_for
+
+    everywhere = WatchItem(id=1, query="a")
+    banners = WatchItem(id=0, query="b", target=("banner", "screen"))
+    one = WatchItem(id=2, query="c", target="window:7")
+    assert [i.id for i in watchlist_for([everywhere, banners, one], "banner")] == [0, 1]
+    assert [i.id for i in watchlist_for([everywhere, banners, one], "window:7")] == [1, 2]
+    assert [i.id for i in watchlist_for([everywhere, banners, one], "window:8")] == [1]
