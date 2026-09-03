@@ -237,8 +237,14 @@ class _Delegate(NSObject):
             return AppKit.NSTerminateNow
         if not self._terminating:
             self._terminating = True
-            logger.info("quitting; taking the workers down")
-            asyncio.run_coroutine_threadsafe(self._app.shutdown(), self._app.loop)
+            if self._app.runner is None:
+                # Still before the workers exist: waiting for a permission.
+                # Cancel that wait; the future's callback finishes the quit.
+                logger.info("quitting before the workers started")
+                self.workers.cancel()
+            else:
+                logger.info("quitting; taking the workers down")
+                asyncio.run_coroutine_threadsafe(self._app.shutdown(), self._app.loop)
         return AppKit.NSTerminateLater
 
     @objc.python_method
