@@ -12,13 +12,15 @@ call back through plain Python callables on the main thread; the caller
 (app.py) hands them to the asyncio loop.
 """
 
+import io
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Optional
 
 import AppKit
 import objc
-from Foundation import NSObject
+from Foundation import NSData, NSObject
+from PIL import Image, ImageDraw
 from PyObjCTools import AppHelper
 
 State = Literal["idle", "listening", "thinking", "speaking", "paused", "stale"]
@@ -36,6 +38,33 @@ STATE_TOOLTIP = {
 }
 
 MAX_RECENT = 10
+
+# The state, drawn on the cat as a dot at its bottom right, in the template's
+# own black so it tints with the menu bar: listening is a filled dot,
+# thinking a ring, speaking a dot in a ring. Idle is the plain cat.
+STATE_DOT = {"listening": "dot", "thinking": "ring", "speaking": "dot-ring"}
+
+
+def _icon_with_dot(kind: Optional[str]) -> AppKit.NSImage:
+    base = Image.open(ICON).convert("RGBA")
+    if kind:
+        w, h = base.size
+        r = max(3, h // 5)
+        cx, cy = w - r - 1, h - r - 1
+        draw = ImageDraw.Draw(base)
+        # Clear a halo so the dot reads against the cat's outline.
+        draw.ellipse((cx - r - 2, cy - r - 2, cx + r + 2, cy + r + 2), fill=(0, 0, 0, 0))
+        if kind in ("dot", "dot-ring"):
+            inner = r if kind == "dot" else max(1, r - 3)
+            draw.ellipse((cx - inner, cy - inner, cx + inner, cy + inner), fill=(0, 0, 0, 255))
+        if kind in ("ring", "dot-ring"):
+            draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(0, 0, 0, 255), width=2)
+    buf = io.BytesIO()
+    base.save(buf, "PNG")
+    image = AppKit.NSImage.alloc().initWithData_(NSData.dataWithBytes_length_(buf.getvalue(), len(buf.getvalue())))
+    image.setSize_(AppKit.NSMakeSize(*ICON_SIZE))
+    image.setTemplate_(True)
+    return image
 
 
 class _Target(NSObject):
@@ -92,10 +121,8 @@ class MenuBar:
         )
         # A template image: black plus alpha, tinted by the system for light
         # and dark menu bars and for the pressed state.
-        icon = AppKit.NSImage.alloc().initWithContentsOfFile_(str(ICON))
-        icon.setSize_(AppKit.NSMakeSize(*ICON_SIZE))
-        icon.setTemplate_(True)
-        self._item.button().setImage_(icon)
+        self._icons: dict[Optional[str], AppKit.NSImage] = {None: _icon_with_dot(None)}
+        self._item.button().setImage_(self._icons[None])
         self._item.button().setToolTip_(STATE_TOOLTIP["idle"])
 
         self._menu = AppKit.NSMenu.alloc().init()
@@ -138,6 +165,10 @@ class MenuBar:
             shown = "paused" if self._paused and state == "idle" else state
             self._item.button().setToolTip_(STATE_TOOLTIP.get(shown, "Peekaboo"))
             self._item.button().setAppearsDisabled_(shown == "paused")
+            kind = STATE_DOT.get(state)
+            if kind not in self._icons:
+                self._icons[kind] = _icon_with_dot(kind)
+            self._item.button().setImage_(self._icons[kind])
 
         AppHelper.callAfter(go)
 

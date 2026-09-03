@@ -132,6 +132,9 @@ WATCHLIST RULES
 - When two images are given, the second is the part of the window that
   changed since the previous frame, enlarged. Read small changes from it: a
   name turning bold, a badge or count appearing, a new line.
+- "window_title_before" means the frame was taken because the title changed;
+  compare it with "window_title": counts like "3 new items" are unread
+  messages, and a new count is new messages.
 - In messaging apps (Slack, Discord, Messages, Mail), the "content" names the
   conversations shown as unread: bold channel or person names, unread
   counts, dots. Put those names in "verbatim_text" too, so the next

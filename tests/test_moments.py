@@ -263,3 +263,21 @@ def test_changed_box_finds_where_two_frames_differ():
     assert left <= 100 <= 300 <= right and top <= 500 <= 560 <= bottom
     assert right - left < 400 and bottom - top < 200
     assert changed_box(signature(a), signature(a), a.size) is None
+
+
+def test_gate_counts_a_priority_frame_as_changed():
+    import asyncio
+
+    from PIL import Image
+
+    from processors.frames import ScreenFrame
+    from processors.gate import ChangeGate
+
+    gate = ChangeGate()
+    img = Image.new("RGB", (640, 400), "white")
+    first = ScreenFrame(target="window:1", image=img, timestamp=1)
+    same = ScreenFrame(target="window:1", image=img.copy(), timestamp=2)
+    retitled = ScreenFrame(target="window:1", image=img.copy(), timestamp=3, priority=True, previous_title="1 new item")
+    for f in (first, same, retitled):
+        gate._annotate(f)
+    assert first.changed and not same.changed and retitled.changed

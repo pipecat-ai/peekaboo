@@ -59,6 +59,8 @@ class ChangeGate(FrameProcessor):
             fraction = changed_fraction(sig, last)
             frame.changed = fraction >= self._changed_threshold
             logger.trace(f"{self}: {frame.target} changed {fraction:.4f} -> {frame.changed}")
+            if frame.priority and not frame.changed:
+                frame.changed = True
             if frame.changed and fraction < LOCAL_CHANGE_MAX_FRACTION:
                 frame.changed_box = changed_box(sig, last, frame.image.size)
 

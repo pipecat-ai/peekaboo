@@ -37,6 +37,11 @@ class ScreenFrame(SystemFrame):
     """Identity of the frame for storage: same key, same picture."""
     changed: bool = True
     """Whether the frame differs from the last one analyzed for this target."""
+    priority: bool = False
+    """Taken on a signal (the window's title changed): analysed as changed,
+    ahead of the per-target interval."""
+    previous_title: Optional[str] = None
+    """The title before, when the frame was taken for a title change."""
     changed_box: Optional[tuple[int, int, int, int]] = None
     """Where it differs, as a box in image pixels (left, top, right, bottom),
     when the change is local; None when most of the frame moved."""

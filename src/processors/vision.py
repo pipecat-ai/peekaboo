@@ -271,7 +271,7 @@ class VisionImageProcessor(FrameProcessor):
             return
         if frame.role == "screen" and not self.analyses_screen:
             return
-        if self.busy or self._due_in(frame) > 0:
+        if self.busy or (self._due_in(frame) > 0 and not frame.priority):
             # Newest frame per target waits; it goes when the model is idle
             # and the target's interval has passed.
             self._pending[frame.target] = frame
@@ -301,6 +301,8 @@ class VisionImageProcessor(FrameProcessor):
             query["app"] = frame.app
         if frame.title:
             query["window_title"] = frame.title
+        if frame.priority and frame.previous_title is not None:
+            query["window_title_before"] = frame.previous_title
         previous = self._previous.get(frame.target)
         if previous:
             query["previous"] = previous

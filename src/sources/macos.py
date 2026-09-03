@@ -237,7 +237,15 @@ class ScreenCaptureSource(BaseFrameSource):
         # A look wants the picture as it is right now, watched or not.
         await self._still(target)
 
-    async def _still(self, target: str, *, moment: Optional[int] = None, skip_blank: bool = False):
+    async def _still(
+        self,
+        target: str,
+        *,
+        moment: Optional[int] = None,
+        skip_blank: bool = False,
+        priority: bool = False,
+        previous_title: Optional[str] = None,
+    ):
         if target not in self._targets and not self._window_for(target):
             logger.warning(f"{self}: unknown target {target!r}")
             return
@@ -272,9 +280,11 @@ class ScreenCaptureSource(BaseFrameSource):
             logger.trace(f"{self}: {target} is blank, skipped")
             return
 
-        await self._push(target, image, moment=moment)
+        await self._push(target, image, moment=moment, priority=priority, previous_title=previous_title)
 
-    async def _push(self, target: str, image, *, moment: Optional[int] = None):
+    async def _push(
+        self, target: str, image, *, moment: Optional[int] = None, priority: bool = False, previous_title: Optional[str] = None
+    ):
         if target == SCREEN_TARGET:
             app, window = self._registry.frontmost()
             displays = self._registry.displays
@@ -306,6 +316,8 @@ class ScreenCaptureSource(BaseFrameSource):
                 role="window",
                 moment=moment,
                 rect=tuple(int(v) for v in window.frame) if window else None,
+                priority=priority,
+                previous_title=previous_title,
             )
         await self.push_frame(frame)
 
@@ -404,6 +416,11 @@ class ScreenCaptureSource(BaseFrameSource):
             return
         if event.kind == EventKind.CLOSED:
             self.create_task(self._lose(target, "the window was closed"))
+        elif event.kind == EventKind.RETITLED:
+            # Titles carry news ("3 new items"), and Electron apps may not
+            # repaint for it: take a still now, marked as a change.
+            before = event.previous.title if event.previous else None
+            self.create_task(self._still(target, priority=True, previous_title=before))
         elif event.kind == EventKind.HIDDEN:
             self.create_task(self._set_stale(streamed, "it is minimized or hidden"))
         elif event.kind == EventKind.SHOWN:
