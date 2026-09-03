@@ -1272,7 +1272,18 @@ function handle(event, payload) {
     $("#answer").hidden = false; $("#answertext").textContent = ""; $("#answermeta").innerHTML = `<span>Searching…</span>`; $("#drew").hidden = true; $("#askclear").hidden = false;
   }
   else if (event === "show_ask") { openAsk(payload.id); }
-  else if (event === "show") { call("get", { ids: payload.ids }).then(async (obs) => { if (!obs.length) return; await loadIcons(obs); openViewer(obs[0], obs); }); }
+  else if (event === "show") {
+    // "Show me": the results, on Ask, with the answer above them when it is
+    // there; a single memory is opened by a follow-up, not by this.
+    call("get", { ids: payload.ids }).then(async (obs) => {
+      if (!obs.length) return;
+      await loadIcons(obs);
+      show("ask");
+      const shown = [...document.querySelectorAll("#drewgrid .memcard")].map((c) => cardData.get(c)?.id);
+      if ($("#drew").hidden || shown.join() !== obs.map((o) => o.id).join()) { fillGrid($("#drewgrid"), obs); $("#drew").hidden = false; }
+      $("#drew").scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  }
   else if (event === "status") { loadStatus(); if (screen === "watchers") loadWatchers(); }
   else if (event === "watchers") { $("#wcount").textContent = (payload.watchers || []).length ? String(payload.watchers.length) : ""; if (screen === "watchers") renderWatchers(payload); }
 }

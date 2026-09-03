@@ -575,8 +575,9 @@ class VoiceWorker(PipelineWorker):
         show_me_function = FunctionSchema(
             name="show_me",
             description=(
-                "Open the memories window on the screenshots behind the last answer about the "
-                "past. Call it when the user says 'show me' or asks to see it."
+                "Open the memories window on the results behind the last answer: the answer and "
+                "the memories it drew on. Call it when the user says 'show me' or asks to see it; "
+                "opening one of them is then a request for [window]."
             ),
             properties={},
             required=[],
