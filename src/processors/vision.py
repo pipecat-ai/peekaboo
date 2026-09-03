@@ -296,6 +296,11 @@ class VisionImageProcessor(FrameProcessor):
             "text": "Describe the image and check if it contains anything from the watchlist",
             "timestamp": frame.timestamp,
         }
+        # The model kept calling Slack "Notion": tell it what window this is.
+        if frame.app:
+            query["app"] = frame.app
+        if frame.title:
+            query["window_title"] = frame.title
         previous = self._previous.get(frame.target)
         if previous:
             query["previous"] = previous
