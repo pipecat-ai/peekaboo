@@ -148,9 +148,12 @@
   .caldays .d.today::after { content: ""; position: absolute; bottom: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
   .caldays .d.future { color: var(--faint); }
   .calhint { margin-top: 10px; font: 10.5px var(--mono); color: var(--faint); white-space: nowrap; }
-  .tip { position: fixed; z-index: 30; pointer-events: none; padding: 7px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line-strong); box-shadow: 0 6px 18px rgba(0,0,0,.14); font-size: 12px; display: flex; flex-direction: column; gap: 2px; max-width: 260px; }
-  .tip .who { display: flex; align-items: center; gap: 6px; font-weight: 600; } .tip .sw { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-  .tip .sub { color: var(--muted); font: 11px var(--mono); }
+  .tip { position: fixed; z-index: 30; pointer-events: none; padding: 6px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0,0,0,.16); font-size: 12px; display: flex; flex-direction: column; gap: 4px; width: 220px; }
+  .tip .shot { width: 100%; aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden; background: var(--chip); } .tip .shot img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  .tip .who { display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 0 2px; } .tip .who .sub { margin-left: auto; }
+  .tip .title { padding: 0 2px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tip .sub { color: var(--muted); font: 11px var(--mono); display: flex; align-items: center; gap: 5px; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tip .sw { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
   .tl-row .hour.zoomable { border-radius: 4px; } .tl-row .hour:hover { color: var(--accent); }
   .tl-row.zoom .track { height: 120px; background-image: repeating-linear-gradient(90deg, var(--line-soft) 0 1px, transparent 1px calc(100% / 12)); }
   .tl-row .rsel { position: absolute; top: -5px; bottom: -5px; background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid var(--accent); border-radius: 4px; pointer-events: none; z-index: 2; }
@@ -659,7 +662,7 @@ async function loadDay() {
     track.onmousedown = (e) => beginDrag(row, e);
     track.onclick = (e) => { if (suppressClick) { suppressClick = false; return; } if (e.shiftKey && tlRange) { extendRange(row, e); return; } scrub(row, e); };
     track.ondblclick = () => tlSelected && openStrip();
-    track.onmousemove = (e) => { hover(row, e); blockTip(row, e); };
+    track.onmousemove = (e) => hover(row, e);
     track.onmouseleave = () => {
       $("#tip").hidden = true;
       track.querySelectorAll(".marker.hover, .marker-label.hover").forEach((m) => m.remove());
@@ -670,20 +673,6 @@ async function loadDay() {
   if (tlRange && dayISO(new Date(tlRange.from * 1000)) !== day) { tlRange = null; renderSelection(); }
   if (tlRange) paintRange();
   if (!$("#calpop").hidden) loadCal();
-}
-
-// The block under the mouse, named: app, others in it, span, count.
-function blockTip(row, e) {
-  const tip = $("#tip"), seg = e.target.closest(".seg");
-  if (!seg) { tip.hidden = true; return; }
-  const b = row.blocks.find((x) => String(x.from) === seg.dataset.key); if (!b) { tip.hidden = true; return; }
-  const others = Object.entries(b.apps).filter(([a]) => a !== b.app).map(([a, n]) => `${a} ${n}`);
-  tip.innerHTML = `<div class="who"><span class="sw" style="background:${appColor(b.app)}"></span>${esc(b.app)}</div>
-    <div class="sub">${pad(row.hour)}:${pad(b.from)}–${pad(row.hour)}:${pad(b.to + 1)} · ${b.ids.length} ${b.ids.length === 1 ? "memory" : "memories"}</div>${others.length ? `<div class="sub">also ${esc(others.join(", "))}</div>` : ""}`;
-  tip.hidden = false;
-  const r = tip.getBoundingClientRect(), sr = seg.getBoundingClientRect();
-  tip.style.left = `${Math.max(8, Math.min(window.innerWidth - r.width - 8, e.clientX - r.width / 2))}px`;
-  tip.style.top = `${sr.top - r.height - 10}px`;
 }
 
 // ---- the calendar (a dropdown from the day), hour zoom, and time selection ----
@@ -849,21 +838,35 @@ function blocksOf(row) {
   return blocks;
 }
 
-// Moving along a track shows a marker at the frame nearest the mouse within
-// that hour, with its time; the block popup names the block. Nothing else
-// appears until a click or a voice command selects something.
+// Moving along a track scrubs in place: a marker at the frame nearest the
+// mouse within that hour, and a popup at the pointer with that frame's
+// thumbnail, app and time, plus the block it is in. Nothing appears below
+// until a click or a voice command selects something.
 function hover(row, e) {
   if (hoverRaf) return;
-  const track = e.currentTarget, clientX = e.clientX;
+  const track = e.currentTarget, clientX = e.clientX, clientY = e.clientY, seg = e.target.closest(".seg");
   hoverRaf = requestAnimationFrame(() => {
     hoverRaf = 0;
     const rect = track.getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     const o = nearestFrame(row.start + frac * 3600, row.frames || []);
     track.querySelectorAll(".marker.hover, .marker-label.hover").forEach((m) => m.remove());
-    if (!o) return;
+    const tip = $("#tip");
+    if (!o || !seg) { tip.hidden = true; return; }
     const x = ((o.ts - row.start) / 3600) * 100;
     track.insertAdjacentHTML("beforeend", `<div class="marker hover" style="left:${x}%"></div><div class="marker-label hover" style="left:${x}%">${hhmmss(o.ts)}</div>`);
+    const b = row.blocks.find((k) => String(k.from) === seg.dataset.key);
+    const others = b ? Object.entries(b.apps).filter(([a]) => a !== b.app).map(([a, n]) => `${a} ${n}`) : [];
+    tip.innerHTML = `<div class="shot">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
+      <div class="who">${appIcon(o.app)}<span>${esc(o.app || "Screen")}</span><span class="sub">${hhmmss(o.ts)}</span></div>
+      <div class="title">${esc(o.title || o.content.split(".")[0])}</div>
+      ${b ? `<div class="sub"><span class="sw" style="background:${appColor(b.app)}"></span>${esc(b.app)} ${pad(row.hour)}:${pad(b.from)}–${pad(row.hour)}:${pad(b.to + 1)} · ${b.ids.length} ${b.ids.length === 1 ? "memory" : "memories"}${others.length ? ` · also ${esc(others.join(", "))}` : ""}</div>` : ""}`;
+    tip.hidden = false;
+    const r = tip.getBoundingClientRect();
+    tip.style.left = `${Math.max(8, Math.min(window.innerWidth - r.width - 8, clientX - r.width / 2))}px`;
+    // Above the track, or below it when the track is near the top.
+    const above = rect.top - r.height - 14;
+    tip.style.top = `${above >= 8 ? above : rect.bottom + 14}px`;
   });
 }
 
