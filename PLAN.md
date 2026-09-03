@@ -154,7 +154,7 @@ ways, so cost stays bounded no matter how many apps are open.
 | **Registry** | Window list poll + NSWorkspace notifications | 1 Hz | Know every app and window. No pixels. |
 | **Look** | One `SCScreenshotManager` still of a window or app | On demand | Answer a question about a specific window right now. Image plus question in one model call. |
 | **Watch** | One `SCStream` per watched target, 1 fps, scaled to ≤1080 wide | While a watcher exists | Detect a condition. Only `complete` frames pass the change gate. |
-| **Record** | One low-rate stream of the display (decided in M0, see §9) | 1 frame / 2–5 s, gated | Build the memory record. On by default, paused from the menu. |
+| **Record** | Per tick: one display still (kept, not analysed) plus one `SCScreenshotManager` still per capturable window, analysed only when its hash changed (decision 10, §9). Until M7 lands: one display still, analysed. | 1 tick / 2–5 s, gated per window | Build the memory record. On by default, paused from the menu. |
 
 **Change gate.** A frame reaches the vision model only if its stream status is
 `complete` and its perceptual hash differs from the last one sent for that
@@ -340,6 +340,7 @@ The picker can be offered later as the gesture for creating a watcher.
 | M4 | **Menu bar and memories** | Status item, state icon, dropdown, memories window with ask box, results, screenshot viewer and timeline, `ui` worker, wake phrase | Ask by voice, say "show me", the window opens on the screenshot. Then type a question in the app and get the same answer with frames. | Pause stops all streams. Watchers and recent items reflect the bus in real time. Every result opens its full-size frame. |
 | M5 | **Moments** | Built-in notification watch in the `screen` worker, moment policy in the voice worker, quiet rules, banners through the `ui` worker, join flow | A calendar banner appears. Peekaboo says it, you say "join", Zoom opens. Repeat while Zoom holds the mic: a banner instead. | Reminder spoken when the banner appears. Never speaks while another app uses the mic. The same banner is announced once. Snooze works by voice. |
 | M6 | **Polish** | Launch at login, exclusions, retention, hotkey, permission onboarding | | Runs for a full workday without intervention. |
+| M7 | **Windows as memory** | Moments (screen still + per-window frames with rectangles), change-gated per-window analysis, blank detection for off-Space browsers, capture on visit, focus marker; cards and search on window frames, Viewer as the screen map with clickable outlines, Timeline scrubbing screen stills | "What was in Slack while I was in the terminal at three?" answered from a covered window; click the Slack outline on the screen and read it | Analysis cost within 1.5× of today's for a normal hour; every readable window of a moment stored at full resolution. |
 
 Rough sizing: M0 two days, M1–M5 three to four days each, M6 ongoing.
 About four weeks to a complete demo.
@@ -389,13 +390,27 @@ Defaults taken in this plan. Change any of them before M1.
    region at a higher rate.
 9. **Quiet by default when another app has the mic.** A voice assistant
    that talks into your Zoom call is worse than one that stays silent.
-10. **Record mode streams the display, not the frontmost window.** Taken
-    from the M0 data. It shows what the user actually sees, so the blank
-    frames occlusion-aware apps produce off-Space cannot reach the memory
-    record; it is one stream that survives focus changes; and it keeps
-    side-by-side layouts. The registry tags each observation with the
-    frontmost app and window title. Capture at 1280 wide if 1080 makes
-    text too small.
+10. **A memory is a moment: the screen for context, every capturable window
+    for content.** Supersedes the M0 decision to record the display alone
+    (kept below for the record). A display still is a composite: covered
+    windows are invisible, small ones unreadable, other Spaces absent, and
+    its frontmost-app tag was read as the subject of the frame when it is
+    only where attention was. So each tick captures the screen still, kept
+    without analysis as the map of the moment (arrangement, recognisable
+    while scrubbing, cheap, shorter retention), plus a still of each
+    capturable window with its rectangle; a window is analysed only when its
+    hash changed, so the analysis rate stays near today's while the record
+    gains full-resolution text per window, covered windows included. The
+    frontmost app stays as a **focus** marker, named as such in the UI.
+    Windows on another Space or minimized: capture succeeds, but
+    occlusion-aware apps (browsers, Electron) deliver blank content; the
+    blank detector marks them and they are refreshed when next visible
+    ("capture on visit"). Cards and search show window frames; the Viewer
+    shows the screen with the windows outlined and clickable; the Timeline
+    scrubs the screen stills. *Original M0 decision:* record the display,
+    not the frontmost window, because it shows what the user sees, survives
+    focus changes, and keeps side-by-side layouts; tag each observation with
+    the frontmost app and title; 1280 wide.
 11. **Staleness is detected three ways, not one.** A `suspended` frame, no
     frame for a few seconds, or a `complete` frame whose content area is
     blank. Frame status alone is not a freshness signal.
