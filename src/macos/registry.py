@@ -346,6 +346,9 @@ class WindowRegistry:
     def sc_app(self, pid: int):
         return self._sc_apps.get(pid)
 
+    def app(self, pid: int) -> Optional[App]:
+        return self._apps.get(pid)
+
     def on_event(self, listener: Callable[[RegistryEvent], None]):
         self._listeners.append(listener)
 

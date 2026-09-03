@@ -99,6 +99,8 @@ class ScreenCaptureSource(BaseFrameSource):
         # Targets whose last still failed, so a persistent failure (the
         # screen is locked, say) is one warning, not one a second.
         self._failing: set[str] = set()
+        # The frontmost app and window last seen, minus ourselves.
+        self._last_focus: tuple = (None, None)
         registry.on_event(self._on_registry_event)
 
     #
@@ -287,6 +289,16 @@ class ScreenCaptureSource(BaseFrameSource):
     ):
         if target == SCREEN_TARGET:
             app, window = self._registry.frontmost()
+            if app is not None and app.pid == self._registry.own_pid:
+                # Looking at Peekaboo is not what the user was doing; the
+                # focus stays with the app before it, or, at startup, with
+                # the frontmost window of another app.
+                app, window = self._last_focus
+                if app is None:
+                    window = next((w for w in self._registry.windows if w.pid != self._registry.own_pid and w.on_screen), None)
+                    app = self._registry.app(window.pid) if window else None
+            else:
+                self._last_focus = (app, window)
             displays = self._registry.displays
             bounds = displays[0].frame() if displays else None
             frame = ScreenFrame(
@@ -329,9 +341,19 @@ class ScreenCaptureSource(BaseFrameSource):
             displays = self._registry.displays
             if not displays:
                 raise RuntimeError("no display")
-            filter = display_filter(displays[0])
+            # Our own window is left out of the screen still: the record is
+            # about the user's work, and scrolling Peekaboo is not a change.
+            own = self._registry.sc_app(self._registry.own_pid)
+            filter = display_filter(displays[0], excluding_apps=[own] if own is not None else ())
             config = stream_configuration(filter, max_width=self._width)
-            logger.debug(f"{self}: {target} is display {displays[0].displayID()} at {config.width()}x{config.height()}")
+            logger.debug(
+                f"{self}: {target} is display {displays[0].displayID()} at {config.width()}x{config.height()}"
+                f"{' excluding our own windows' if own is not None else ' (own app not known yet)'}"
+            )
+            if own is None:
+                # The registry has not listed us yet; try again next time
+                # rather than keeping a filter that shows our window.
+                return filter, config
         else:
             window = self._window_for(target)
             sc_window = self._registry.sc_window(window.id) if window else None
