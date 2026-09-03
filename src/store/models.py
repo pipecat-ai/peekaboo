@@ -46,6 +46,8 @@ class Observation(BaseModel):
             "id": self.id,
             "time": self.datetime.isoformat(timespec="minutes"),
             "kind": self.kind,
+            "app": self.app,
+            "window": self.title,
             "content": self.content,
             "verbatim_text": self.verbatim_text,
         }

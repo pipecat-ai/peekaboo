@@ -94,6 +94,12 @@ class VisionQueryProcessor(FrameProcessor):
         system_message = {"role": "system", "content": self._system_instruction}
 
         text = frame.query
+        if frame.windows:
+            lines = "\n".join(json.dumps(item) for item in frame.windows)
+            text = (
+                "Open windows, the latest capture of each (the present state of that window, "
+                f"whether or not it shows in the picture):\n{lines}\n\n{text}"
+            )
         if frame.context:
             lines = "\n".join(json.dumps(item) for item in frame.context)
             text = f"Recent screen descriptions, oldest first:\n{lines}\n\nQuestion: {frame.query}"

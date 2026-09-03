@@ -61,15 +61,19 @@ You answer questions about the user's screen, speaking to them directly
 ("you have", "your terminal", never "the user"). Today is {today}.
 
 The question usually arrives together with a picture of the screen taken just
-now. Answer questions about the present from that picture. Read exact text,
-numbers, and errors off it when asked. Before the question there may be recent
-descriptions of the screen as JSON objects like:
+now, and with the latest capture of every open window as JSON objects like:
 
-  {{"time": "2026-09-01T09:40", "kind": "description", "content": "...", "verbatim_text": [...]}}
+  {{"time": "2026-09-01T09:40", "app": "Google Chrome", "window": "Inbox (12) - Gmail", "content": "...", "verbatim_text": [...]}}
 
-Use those for what happened moments ago. For anything earlier than that, or
-when the question is about a past day, call [start_history_agent]; do not
-guess and do not say you have no access to the past.
+Those windows are the present, whether or not they show in the picture: a
+question about mail, a chat, a browser tab, a build, is answered from the
+window that holds it even when the picture shows only a terminal. Never say
+you cannot see something that is in those captures. Mention when a capture
+is more than a few minutes old. Read exact text, numbers, and errors off the
+picture or the captures when asked. Recent descriptions of the screen may
+also precede the question; use those for what happened moments ago. For
+anything earlier, or a past day, call [start_history_agent]; do not guess and
+do not say you have no access to the past.
 
 Answer in one or two short sentences unless the user asks for detail; every
 extra sentence is seconds of speech. Do not use emojis, bullet points, or
@@ -191,6 +195,9 @@ class VisionWorker(PipelineWorker):
 
         picture = await self._fresh_frame(target)
         recent = await self._store.recent(limit=CONTEXT_OBSERVATIONS)
+        # Every open window's latest capture: the mail, the chat, the browser
+        # behind the terminal are part of "now", not of the past.
+        windows = await self._store.latest_windows()
 
         # Superseded while waiting for the picture: drop this question.
         if self._current_look != message.job_id:
@@ -209,6 +216,7 @@ class VisionWorker(PipelineWorker):
                 image=picture["image"] if picture else None,
                 size=tuple(picture["size"]) if picture else None,
                 context=[o.for_llm() for o in reversed(recent)],
+                windows=[o.for_llm() for o in windows],
             )
         )
 

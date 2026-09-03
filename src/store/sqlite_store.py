@@ -436,6 +436,24 @@ class SQLiteStore:
         ).fetchall()
         return {r["target"]: (r["frame_hash"], r["content"] or "") for r in rows}
 
+    async def latest_windows(self, since_secs: int = 900, limit: int = 12) -> list[Observation]:
+        """The newest description of each window captured in the last while:
+        the present state of the windows, seen or not, newest first."""
+        cutoff = int(time.time()) - int(since_secs)
+        return await self._run(self._latest_windows_sync, cutoff, limit)
+
+    def _latest_windows_sync(self, cutoff: int, limit: int) -> list[Observation]:
+        rows = self._db.execute(
+            """
+            SELECT * FROM observations o
+            WHERE kind = 'description' AND target LIKE 'window:%' AND ts >= ?
+              AND id = (SELECT MAX(id) FROM observations WHERE target = o.target AND kind = 'description')
+            ORDER BY ts DESC LIMIT ?
+            """,
+            (cutoff, limit),
+        ).fetchall()
+        return [_row_to_observation(r) for r in rows]
+
     async def moment(self, moment: int) -> list[Observation]:
         """Everything captured in one recording tick: the screen still and the
         window frames analysed from it."""

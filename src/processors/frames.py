@@ -73,6 +73,10 @@ class QuestionFrame(SystemFrame):
     """JPEG bytes of the screen right now, when a frame was available."""
     size: Optional[tuple[int, int]] = None
     context: list[dict] = field(default_factory=list)
+    """Recent descriptions, oldest first: what happened moments ago."""
+    windows: list[dict] = field(default_factory=list)
+    """The latest capture of each open window: the present, whether or not the
+    window shows in the picture."""
     """Recent observations, oldest first, in their LLM shape."""
 
     def __str__(self):
