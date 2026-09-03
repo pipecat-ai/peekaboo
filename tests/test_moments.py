@@ -142,6 +142,9 @@ def test_strip_wake_recognizes_the_phrase_and_its_mishearings():
         ("Peek-a-doo. What was I doing this morning?", "What was I doing this morning?"),
         ("Pika Boo, what was I doing this morning?", "what was I doing this morning?"),
         ("Peak of.", ""),
+        ("Peekable,", ""),
+        ("Hey, Peekaboo,, show me the timeline.", "show me the timeline."),
+        ("Pick a book,", ""),
     ]:
         assert strip_wake(heard) == rest, heard
     # Everyday words that sound nothing like it stay asleep.

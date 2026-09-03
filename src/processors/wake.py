@@ -75,7 +75,10 @@ def _distance(a: str, b: str) -> int:
 
 def _is_wake(candidate: str) -> bool:
     key = _phonetic(candidate)
-    return key in _FRAGMENTS or _distance(key, _PHONETIC_KEY) <= 1
+    if key in _FRAGMENTS or _distance(key, _PHONETIC_KEY) <= 1:
+        return True
+    # "Peekable", "Peekabull": the start is right and the end trails off.
+    return key.startswith("pikab") and len(key) <= 8
 
 
 def strip_wake(text: str) -> Optional[str]:

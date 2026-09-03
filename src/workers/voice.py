@@ -95,6 +95,10 @@ SpeechServices = Literal["cloud", "local"]
 # Spoken when the wake phrase comes alone.
 WAKE_ACK = "Yes?"
 
+# Silence that ends an utterance. Long enough that "Peekaboo," and the
+# question after it are heard as one, short enough not to drag the turn end.
+WAKE_VAD_STOP_SECS = 0.6
+
 # Cartesia voice when CARTESIA_VOICE_ID is not set: British Reading Lady.
 CARTESIA_VOICE = "71a7ad14-091c-4e8e-a314-022ece01c121"
 
@@ -627,10 +631,13 @@ class VoiceWorker(PipelineWorker):
 
         # Turn detection lives here: VAD decides when the user starts talking
         # and the default stop strategy is the local Smart Turn v3 analyzer.
+        # The VAD's stop also ends the local recognizer's segments; the pause
+        # after "Peekaboo," must not cut the word off into its own clip, where
+        # small models mangle it, so the stop is longer than the default.
         aggregators = LLMContextAggregatorPair(
             context,
             user_params=LLMUserAggregatorParams(
-                vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+                vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=WAKE_VAD_STOP_SECS)),
             ),
         )
 
