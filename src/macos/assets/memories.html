@@ -268,6 +268,10 @@
   /* Settings */
   .setting { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--line-soft); max-width: 720px; }
   .setting .label { font-weight: 500; } .setting .help { font-size: 12px; color: var(--muted); }
+  .settings-sec { display: flex; flex-direction: column; max-width: 720px; }
+  .settings-sec .eyebrow { padding-bottom: 4px; border-bottom: 1px solid var(--line-strong); }
+  .settings-sec .setting:last-child { border-bottom: 0; }
+  .settings-sec .empty { padding: 14px 0; text-align: left; }
   .seg { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; font-size: 12px; }
   .seg span { padding: 4px 12px; } .seg span.on { background: var(--accent); color: #fff; font-weight: 500; }
   .check { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; flex-shrink: 0; }
@@ -418,6 +422,8 @@
   <section class="screen" id="settings" aria-label="Settings">
     <div class="head" data-drag><h1>Settings</h1></div>
     <div class="body">
+      <div class="settings-sec" role="group" aria-label="System">
+      <div class="eyebrow">System</div>
       <div class="setting">
         <div><div class="label">Appearance</div><div class="help">System follows macOS; Light and Dark force one.</div></div>
         <div class="seg" id="themeseg" role="group" aria-label="Appearance"><span data-v="system" class="on" role="button" aria-label="Appearance: System" aria-selected="true">System</span><span data-v="light" role="button" aria-label="Appearance: Light" aria-selected="false">Light</span><span data-v="dark" role="button" aria-label="Appearance: Dark" aria-selected="false">Dark</span></div>
@@ -426,6 +432,9 @@
         <div><div class="label">Start recording when Peekaboo launches</div><div class="help">Otherwise recording waits for the menu, the button below, or "start recording" aloud.</div></div>
         <input type="checkbox" id="recordlaunch" class="check" checked aria-label="Start recording when Peekaboo launches">
       </div>
+      </div>
+      <div class="settings-sec" role="group" aria-label="Audio">
+      <div class="eyebrow">Audio</div>
       <div class="setting">
         <div><div class="label">Microphone</div><div class="help">Which microphone Peekaboo listens through. Peekaboo keeps it open to hear its name, and an open Bluetooth headset mic drops the headset to its low-quality mode; pick the built-in microphone to keep headphones sounding right.</div></div>
         <select id="micsel" class="select" aria-label="Microphone"><option value="">System default</option></select>
@@ -434,7 +443,11 @@
         <div><div class="label">Echo cancellation</div><div class="help">Lets Peekaboo hear you while it speaks. Turn it off to record your screen with another app: with it on, macOS muffles the microphone for everyone else. Off, wear headphones so Peekaboo doesn't hear itself.</div></div>
         <input type="checkbox" id="echocancel" class="check" checked aria-label="Echo cancellation">
       </div>
-      <div class="empty">Exclusions, retention, and model tiers arrive with M6.</div>
+      </div>
+      <div class="settings-sec" role="group" aria-label="Recording">
+      <div class="eyebrow">Recording</div>
+      <div class="empty">Which apps to leave out and how long to keep memories come next.</div>
+      </div>
     </div>
   </section>
 </div>
