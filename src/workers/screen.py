@@ -123,6 +123,12 @@ FIELDS
 WATCHLIST RULES
 
 - When "type" is "watchlist", the "content" must be extremely brief.
+- The query may carry "previous": what this same window showed the last
+  time it was described. Items about a change or an event ("I get new
+  messages", "the build finishes", "someone replies") are judged by
+  comparing the image with "previous": report them when the image shows
+  something that was not there before, and not otherwise. Without
+  "previous", judge from the image alone.
 
 WATCHLIST ITEMS:
 """
@@ -586,6 +592,8 @@ class ScreenWorker(PipelineWorker):
         # the memory can be shown later.
         sent = self._image_processor.take_last_sent()
         self._count_analysis()
+        if sent:
+            self._image_processor.remember(sent.target, str(data.get("content", "")))
         if not self._frame_source.capturing:
             # Paused: watchers still get their hits (handled elsewhere), but
             # nothing is remembered.

@@ -135,6 +135,9 @@ class VisionImageProcessor(FrameProcessor):
         self._pending: Dict[str, ScreenFrame] = {}
         # When each target was last sent, for the per-target interval.
         self._sent_at: Dict[str, float] = {}
+        # What each target showed last time it was described, so conditions
+        # about change ("new messages", "finished") can be judged.
+        self._previous: Dict[str, str] = {}
         self._flush_task: Optional[asyncio.Task] = None
 
         # Fired with the analysis dict of a frame that matched watchlist items.
@@ -149,6 +152,11 @@ class VisionImageProcessor(FrameProcessor):
     @property
     def watchlist(self) -> List[WatchItem]:
         return list(self._watchlist.values())
+
+    def remember(self, target: str, content: str):
+        """Keep a target's latest description for the next analysis."""
+        if content:
+            self._previous[target] = content
 
     def take_last_sent(self) -> Optional[SentFrame]:
         """The frame most recently sent to the model, once."""
@@ -266,6 +274,9 @@ class VisionImageProcessor(FrameProcessor):
             "text": "Describe the image and check if it contains anything from the watchlist",
             "timestamp": frame.timestamp,
         }
+        previous = self._previous.get(frame.target)
+        if previous:
+            query["previous"] = previous
 
         message = await LLMContext.create_image_message(
             image=frame.image.tobytes(),
