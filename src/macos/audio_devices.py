@@ -37,6 +37,11 @@ _GLOBAL, _INPUT = _fourcc("glob"), _fourcc("inpt")
 _DEVICES, _DEFAULT_INPUT = _fourcc("dev#"), _fourcc("dIn ")
 _NAME, _UID, _STREAMS, _TRANSPORT = _fourcc("lnam"), _fourcc("uid "), _fourcc("stm#"), _fourcc("tran")
 _TERMINAL_TYPE = _fourcc("term")
+# Terminal types of the input streams voice processing adds to *output*
+# devices (its echo reference): unknown on the built-in speakers, headphones
+# on a Bluetooth headset. Anything else on an input stream is a capture.
+_REFERENCE_TERMINALS = {0, _fourcc("spkr"), _fourcc("hdph"), _fourcc("lfes"), _fourcc("rspk")}
+_USB_OUTPUT_TERMINALS = range(0x300, 0x400)
 # Aggregate devices Core Audio makes for itself while voice processing runs.
 _SYSTEM_AGGREGATES = ("CADefaultDeviceAggregate", "VPAUAggregateAudioDevice")
 _CURRENT_DEVICE = 2000  # kAudioOutputUnitProperty_CurrentDevice
@@ -102,13 +107,16 @@ def _string(obj: int, selector: int) -> str:
 
 def _has_microphone(dev: int) -> bool:
     """An input stream that is a real capture terminal. While voice
-    processing is on, the output device and the system's aggregates grow
-    input streams too (the echo canceller's reference), with terminal type
-    unknown; a microphone's stream says what it is."""
+    processing is on, output devices and the system's aggregates grow input
+    streams too (the echo canceller's reference), typed as unknown or as the
+    speaker they mirror; a microphone's stream says what it is."""
     raw = _prop(dev, _STREAMS, _INPUT)
     for stream in struct.unpack(f"{len(raw) // 4}I", raw):
         term = _prop(stream, _TERMINAL_TYPE)
-        if len(term) == 4 and struct.unpack("I", term)[0] != 0:
+        if len(term) != 4:
+            continue
+        kind = struct.unpack("I", term)[0]
+        if kind not in _REFERENCE_TERMINALS and kind not in _USB_OUTPUT_TERMINALS:
             return True
     return False
 
