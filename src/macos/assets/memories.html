@@ -419,11 +419,11 @@
     <div class="body">
       <div class="setting">
         <div><div class="label">Appearance</div><div class="help">System follows macOS; Light and Dark force one.</div></div>
-        <div class="seg" id="themeseg"><span data-v="system" class="on">System</span><span data-v="light">Light</span><span data-v="dark">Dark</span></div>
+        <div class="seg" id="themeseg" role="group" aria-label="Appearance"><span data-v="system" class="on" role="button" aria-label="Appearance: System" aria-selected="true">System</span><span data-v="light" role="button" aria-label="Appearance: Light" aria-selected="false">Light</span><span data-v="dark" role="button" aria-label="Appearance: Dark" aria-selected="false">Dark</span></div>
       </div>
       <div class="setting">
         <div><div class="label">Start recording when Peekaboo launches</div><div class="help">Otherwise recording waits for the menu, the button below, or "start recording" aloud.</div></div>
-        <input type="checkbox" id="recordlaunch" class="check" checked>
+        <input type="checkbox" id="recordlaunch" class="check" checked aria-label="Start recording when Peekaboo launches">
       </div>
       <div class="empty">Exclusions, retention, and model tiers arrive with M6.</div>
     </div>
@@ -444,7 +444,18 @@ window.peekaboo = {
 };
 // Pipecat's built-in UI commands, resolved against the snapshot refs the
 // client assigned. Anything else is one of the app's own pushes.
-const byRef = (p) => (p.ref ? window.peekaboo.findElementByRef(p.ref) : p.target_id ? document.getElementById(p.target_id) : null);
+const byRef = (p) => {
+  if (p.ref) {
+    const el = window.peekaboo.findElementByRef(p.ref);
+    if (el) return el;
+    // Not a ref: try a visible button whose name or text matches.
+    const want = String(p.ref).trim().toLowerCase();
+    const candidates = [...document.querySelectorAll('[role="button"], button')].filter((b) => b.offsetParent !== null);
+    return candidates.find((b) => (b.getAttribute("aria-label") || "").toLowerCase() === want || b.textContent.trim().toLowerCase() === want)
+      || candidates.find((b) => (b.getAttribute("aria-label") || "").toLowerCase().includes(want)) || null;
+  }
+  return p.target_id ? document.getElementById(p.target_id) : null;
+};
 function uiCommand(command, p) {
   switch (command) {
     case "navigate": show(String(p.view || "ask")); return true;
@@ -1148,7 +1159,7 @@ let settings = {};
 function applyTheme(theme) {
   if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
   else delete document.documentElement.dataset.theme;
-  document.querySelectorAll("#themeseg span").forEach((el) => el.classList.toggle("on", el.dataset.v === (theme || "system")));
+  document.querySelectorAll("#themeseg span").forEach((el) => { const on = el.dataset.v === (theme || "system"); el.classList.toggle("on", on); el.setAttribute("aria-selected", on ? "true" : "false"); });
 }
 async function setTheme(theme) { applyTheme(theme); settings.theme = theme; await call("set_setting", { key: "theme", value: theme }); }
 document.querySelectorAll("#themeseg span").forEach((el) => (el.onclick = () => setTheme(el.dataset.v)));
