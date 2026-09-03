@@ -329,7 +329,9 @@ def parse_args():
 def main() -> int:
     args = parse_args()
     logger.remove()
-    logger.add(sys.stderr, level="TRACE" if args.verbose > 1 else "DEBUG" if args.verbose else "INFO")
+    # -v/-vv from the command line; PEEKABOO_LOG from the bundle's environment.
+    level = os.environ.get("PEEKABOO_LOG") or ("TRACE" if args.verbose > 1 else "DEBUG" if args.verbose else "INFO")
+    logger.add(sys.stderr, level=level)
 
     load_dotenv(override=True)
     required = ("ANTHROPIC_API_KEY",) + (() if args.local_speech else CLOUD_SPEECH_KEYS)

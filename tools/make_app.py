@@ -182,7 +182,7 @@ def main():
         # How the bare interpreter finds and starts the app (see SITECUSTOMIZE).
         # PYTHONDONTWRITEBYTECODE: a .pyc written into Resources after signing
         # would break the seal, and with it the permission grants.
-        "LSEnvironment": {"PYTHONPATH": str(resources), "PEEKABOO_ROOT": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1"},
+        "LSEnvironment": {"PYTHONPATH": str(resources), "PEEKABOO_ROOT": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1", "PEEKABOO_LOG": "DEBUG"},
     }
     with (APP / "Contents" / "Info.plist").open("wb") as f:
         plistlib.dump(info, f)
