@@ -105,10 +105,11 @@ class App:
     async def run_workers(self) -> int:
         perms = await permissions.request_all()
         if not perms.all_granted:
-            if permissions.bundled() and perms.microphone and not perms.screen_recording:
-                # The prompt is up. When the user allows, the grant only
-                # applies to a fresh process, so wait for it and relaunch.
-                logger.info("waiting for Screen Recording to be allowed")
+            if permissions.bundled() and perms.microphone and not perms.screen_recording and not permissions.is_relaunch():
+                # The dialog is up; it can only open System Settings, where the
+                # user turns Peekaboo on. The grant applies to a fresh process,
+                # so wait for the switch and relaunch once.
+                logger.info("waiting for the Screen Recording switch to be turned on for Peekaboo")
                 if await permissions.wait_for_screen_recording():
                     permissions.relaunch()
             return 1

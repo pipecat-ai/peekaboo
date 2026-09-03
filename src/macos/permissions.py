@@ -66,14 +66,22 @@ async def wait_for_screen_recording(timeout_secs: float = 600.0, every: float = 
 
 def relaunch():
     """Start a fresh copy of this bundle and let this one quit: a Screen
-    Recording grant only applies to a process started after it."""
+    Recording grant only applies to a process started after it. The copy is
+    told it is a relaunch, so it never relaunches in turn."""
+    import os
     import subprocess
 
     import AppKit
 
     path = str(AppKit.NSBundle.mainBundle().bundlePath())
     logger.info(f"relaunching {path} so the grant applies")
-    subprocess.Popen(["open", "-n", path])
+    subprocess.Popen(["open", "-n", path], env={**os.environ, "PEEKABOO_RELAUNCHED": "1"})
+
+
+def is_relaunch() -> bool:
+    import os
+
+    return os.environ.get("PEEKABOO_RELAUNCHED") == "1"
 
 
 def screen_recording_granted() -> bool:
@@ -110,7 +118,10 @@ def request_screen_recording() -> bool:
     state, which is usually still False right after the prompt."""
     if screen_recording_granted():
         return True
-    logger.info("asking for Screen Recording; the grant takes effect after a relaunch")
+    logger.info(
+        "asking for Screen Recording: the dialog only opens System Settings; the switch there "
+        "must be turned on, and the grant takes effect after a relaunch"
+    )
     return bool(Quartz.CGRequestScreenCaptureAccess())
 
 
