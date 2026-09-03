@@ -116,6 +116,8 @@ class VisionWorker(PipelineWorker):
         self._deadline: Optional[asyncio.Task] = None
         # History job id -> the look job waiting on it.
         self._history_to_look: dict[str, str] = {}
+        # The window captures each look was given, by job id.
+        self._look_sources: dict[str, list[int]] = {}
 
         turns = LLMTurnCollector()
         pipeline = self._build_pipeline(turns)
@@ -196,8 +198,10 @@ class VisionWorker(PipelineWorker):
         picture = await self._fresh_frame(target)
         recent = await self._store.recent(limit=CONTEXT_OBSERVATIONS)
         # Every open window's latest capture: the mail, the chat, the browser
-        # behind the terminal are part of "now", not of the past.
+        # behind the terminal are part of "now", not of the past. They are the
+        # memories this answer draws on, so the window can show them.
         windows = await self._store.latest_windows()
+        self._look_sources[message.job_id] = [o.id for o in windows if o.id is not None]
 
         # Superseded while waiting for the picture: drop this question.
         if self._current_look != message.job_id:
@@ -308,7 +312,11 @@ class VisionWorker(PipelineWorker):
 
         self._current_look = None
         await self._disarm_deadline()
-        await self.send_job_response(job_id, {"answer": text}, urgent=True)
+        sources = self._look_sources.pop(job_id, [])
+        response = {"answer": text}
+        if sources:
+            response["observation_ids"] = sources
+        await self.send_job_response(job_id, response, urgent=True)
 
     #
     # History results
