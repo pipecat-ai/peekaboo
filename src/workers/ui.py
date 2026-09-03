@@ -32,8 +32,8 @@ from workers.names import UI_WORKER
 
 UI_MODEL = "claude-haiku-4-5"
 UI_MAX_TOKENS = 400
-# A request to the window agent is answered for it after this long.
-UI_TURN_TIMEOUT_SECS = 15.0
+# A request to the window agent is closed for it after this long.
+UI_TURN_TIMEOUT_SECS = 12.0
 
 SCREENS = ("ask", "searches", "timeline", "watchers", "settings")
 
@@ -72,6 +72,11 @@ zoom into an hour, `timeline_from` and `timeline_to` to select a span of the
 day. Any of them switches to the Timeline. "Show me 3 pm" is the hour;
 "between ten and eleven" is a span; "this morning" is 06:00 to 12:00. Prefer
 a click on a button that is in the state over the fields.
+
+When the Viewer is open, "this image", "this screenshot", "this one" mean
+the memory on the stage: answer "what is this about" from the Viewer's
+"What was on screen" text and the window's name and time, in two sentences,
+without clicking anything.
 
 Questions about what the Timeline shows ("what was I working on in the last
 block around three", "what is in that selection") are answered from the
@@ -115,6 +120,12 @@ class PeekabooUIWorker(UIWorker):
         )
         super().__init__(name, llm=llm)
         self._snapshots = 0
+
+        # A turn that ends in plain text, with no tool called, is the answer:
+        # spoken as the reply, so the request completes instead of hanging.
+        @self.assistant_aggregator.event_handler("on_assistant_turn_stopped")
+        async def _on_turn_stopped(aggregator, message):
+            await self._on_plain_answer(aggregator, message)
 
     @tool
     async def select(self, params: FunctionCallParams, ref: str):
@@ -184,6 +195,24 @@ class PeekabooUIWorker(UIWorker):
         await self.respond_to_job(answer, tts_speak=True)
         await params.result_callback(None)
 
+    async def _on_plain_answer(self, aggregator, message):
+        if self._pending is None or self._pending.done():
+            return
+        busy = getattr(aggregator, "has_function_calls_in_progress", False)
+        if busy() if callable(busy) else busy:
+            return
+        text = getattr(message, "text", None)
+        if text is None:
+            content = getattr(message, "content", "")
+            text = content if isinstance(content, str) else " ".join(
+                str(b.get("text", "")) for b in content if isinstance(b, dict)
+            )
+        text = (text or "").strip()
+        if not text:
+            return
+        logger.debug(f"{self}: plain-text answer taken as the reply: {text[:80]!r}")
+        await self.respond_to_job(text, tts_speak=True)
+
     async def _run_llm_turn(self, message) -> None:
         """The stock turn waits until a tool calls ``respond_to_job``; a turn
         that ends in plain text, or a model that goes quiet after ``select``,
@@ -193,8 +222,10 @@ class PeekabooUIWorker(UIWorker):
         try:
             await asyncio.wait_for(asyncio.shield(turn), timeout=UI_TURN_TIMEOUT_SECS)
         except asyncio.TimeoutError:
-            logger.warning(f"{self}: no reply within {UI_TURN_TIMEOUT_SECS:.0f}s; answering for the window agent")
-            await self.respond_to_job("Sorry, I lost track of that one.", tts_speak=True)
+            # Plain text the model wrote was already spoken on its way; closing
+            # the job silently avoids a second sentence on top of it.
+            logger.warning(f"{self}: no reply within {UI_TURN_TIMEOUT_SECS:.0f}s; closing the request")
+            await self.respond_to_job(None)
             await turn
 
     def render_query(self, message) -> str:

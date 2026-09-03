@@ -1250,7 +1250,9 @@ function handle(event, payload) {
   if (event === "ask.progress") { $("#answermeta").innerHTML = `<span>${esc(payload.text)}</span>`; }
   else if (event === "ask.answer") { renderAnswer(payload); if (payload.ask_id && screen === "searches") loadSearches(); }
   else if (event === "asked") {
-    show("ask"); $("#q").value = payload.question; terms = keywords(payload.question);
+    // The question lands on Ask, but a memory being looked at stays put.
+    if (screen !== "viewer") show("ask");
+    $("#q").value = payload.question; terms = keywords(payload.question);
     $("#askchip").textContent = `asked by voice · ${hhmm(Date.now() / 1000)}`; $("#askchip").hidden = false;
     $("#answer").hidden = false; $("#answertext").textContent = ""; $("#answermeta").innerHTML = `<span>Searching…</span>`; $("#drew").hidden = true; $("#askclear").hidden = false;
   }

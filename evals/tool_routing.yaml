@@ -42,6 +42,12 @@ turns:
         calls:
           - name: window
 
+  - user: "What is this image about?"
+    expect:
+      - event: function_call
+        calls:
+          - name: window
+
   # Remembering an earlier question goes to the searches, not the screen.
   - user: "Yesterday I remember asking you about a pull request. What was it?"
     expect:
