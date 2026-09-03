@@ -38,13 +38,20 @@ class ScreenFrame(SystemFrame):
     changed: bool = True
     """Whether the frame differs from the last one analyzed for this target."""
     app: Optional[str] = None
-    """The frontmost app when the frame was taken, when the source knows."""
+    """For a window, its app; for the screen, the frontmost app (the focus)."""
     title: Optional[str] = None
-    """Its frontmost window's title."""
+    """The window's title, or the frontmost window's for the screen."""
+    role: str = "window"
+    """``"screen"`` for a display still, ``"window"`` for one window."""
+    moment: Optional[int] = None
+    """The recording tick this frame was taken in, shared by the screen still
+    and every window still of that tick."""
+    rect: Optional[tuple[int, int, int, int]] = None
+    """The window's place on the screen (x, y, w, h in points), when known."""
 
     def __str__(self):
         return (
-            f"{self.name}(target: {self.target} size: {self.image.size} "
+            f"{self.name}(target: {self.target} role: {self.role} size: {self.image.size} "
             f"key: {self.key} changed: {self.changed} app: {self.app})"
         )
 

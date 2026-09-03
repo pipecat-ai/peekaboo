@@ -312,6 +312,10 @@ class WindowRegistry:
         self._primed = False
 
     @property
+    def own_pid(self) -> int:
+        return self._own_pid
+
+    @property
     def windows(self) -> list[Window]:
         """Front to back, as ScreenCaptureKit lists them."""
         return list(self._windows.values())

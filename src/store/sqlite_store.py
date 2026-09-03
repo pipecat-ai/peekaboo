@@ -23,7 +23,7 @@ from store.models import DayCoverage, HourCoverage, Observation
 
 DB_FILE = "peekaboo.db"
 FRAMES_DIR = "frames"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 IMAGE_RETENTION_DAYS = 7
 
 SCHEMA = """
@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS observations (
     verbatim_text TEXT NOT NULL DEFAULT '',
     frame_hash TEXT,
     screenshot_path TEXT,
-    thumbnail_path TEXT
+    thumbnail_path TEXT,
+    moment INTEGER,
+    rect TEXT
 );
 CREATE INDEX IF NOT EXISTS observations_ts ON observations(ts);
 CREATE INDEX IF NOT EXISTS observations_hash ON observations(frame_hash);
@@ -116,6 +118,8 @@ def _row_to_observation(row: sqlite3.Row) -> Observation:
         frame_hash=row["frame_hash"],
         screenshot_path=row["screenshot_path"],
         thumbnail_path=row["thumbnail_path"],
+        moment=row["moment"],
+        rect=json.loads(row["rect"]) if row["rect"] else None,
     )
 
 
@@ -183,6 +187,11 @@ class SQLiteStore:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(SCHEMA)
+        # Columns added after the first release, for stores created before.
+        have = {r["name"] for r in conn.execute("PRAGMA table_info(observations)")}
+        for column, decl in (("moment", "INTEGER"), ("rect", "TEXT")):
+            if column not in have:
+                conn.execute(f"ALTER TABLE observations ADD COLUMN {column} {decl}")
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         conn.commit()
         self._conn = conn
@@ -214,8 +223,8 @@ class SQLiteStore:
             """
             INSERT INTO observations
                 (ts, target, app, title, kind, content, verbatim_text,
-                 frame_hash, screenshot_path, thumbnail_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 frame_hash, screenshot_path, thumbnail_path, moment, rect)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 o.timestamp,
@@ -228,6 +237,8 @@ class SQLiteStore:
                 o.frame_hash,
                 o.screenshot_path,
                 o.thumbnail_path,
+                o.moment,
+                json.dumps(o.rect) if o.rect else None,
             ),
         )
         self._db.commit()

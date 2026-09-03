@@ -28,6 +28,10 @@ class Observation(BaseModel):
     """Text copied exactly as it appeared: titles, URLs, errors, numbers."""
     frame_hash: Optional[str] = None
     screenshot_path: Optional[str] = None
+    moment: Optional[int] = None
+    """The recording tick this frame was taken in; frames of one moment share it."""
+    rect: Optional[list[int]] = None
+    """For a window frame, its place on the screen: x, y, w, h in points."""
     """Relative to the store root. Cleared when the image is pruned."""
     thumbnail_path: Optional[str] = None
 

@@ -514,6 +514,9 @@ class ShellWorker(BaseUIWorker):
             "verbatim_text": o.verbatim_text,
             "screenshot_url": url(o.screenshot_path),
             "thumbnail_url": url(o.thumbnail_path),
+            "moment": o.moment,
+            "rect": o.rect,
+            "target": o.target,
         }
 
     #

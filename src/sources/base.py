@@ -16,7 +16,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from processors.frames import CaptureRequestFrame
 
 # How often the source asks for a frame of each polled target while capturing.
-CAPTURE_INTERVAL_SECS = 1.0
+CAPTURE_INTERVAL_SECS = 2.0
 
 
 @dataclass(frozen=True)

@@ -167,16 +167,32 @@ class ScreenCaptureSource(BaseFrameSource):
     #
 
     async def capture(self, target: str):
-        # The cadence: stills of the display. Streamed windows push their own.
+        # The cadence. Asking for the screen is asking for the moment: a still
+        # of the display, then one of every content window, taken together
+        # so they share the moment. Streamed windows push their own frames.
         if target in self._streamed:
             return
+        if target == SCREEN_TARGET:
+            await self._tick()
+            return
         await self._still(target)
+
+    async def _tick(self):
+        moment = int(time.time())
+        await self._still(SCREEN_TARGET, moment=moment)
+        own = self._registry.own_pid
+        windows = [w for w in self._registry.windows if w.pid != own]
+        targets = [f"{WINDOW_PREFIX}{w.id}" for w in windows if f"{WINDOW_PREFIX}{w.id}" not in self._streamed]
+        if targets:
+            t0 = time.monotonic()
+            await asyncio.gather(*(self._still(t, moment=moment, skip_blank=True) for t in targets))
+            logger.trace(f"{self}: {len(targets)} window stills in {(time.monotonic() - t0) * 1000:.0f} ms")
 
     async def capture_now(self, target: str):
         # A look wants the picture as it is right now, watched or not.
         await self._still(target)
 
-    async def _still(self, target: str):
+    async def _still(self, target: str, *, moment: Optional[int] = None, skip_blank: bool = False):
         if target not in self._targets and not self._window_for(target):
             logger.warning(f"{self}: unknown target {target!r}")
             return
@@ -205,23 +221,39 @@ class ScreenCaptureSource(BaseFrameSource):
             self._failing.discard(target)
             logger.info(f"{self}: capture of {target} is back")
 
-        await self._push(target, image)
+        if skip_blank and blank_fraction(image) >= BLANK_FRACTION:
+            # A hidden tab, or an occlusion-aware app on another Space: the
+            # capture worked, the app did not paint. Nothing to remember.
+            logger.trace(f"{self}: {target} is blank, skipped")
+            return
 
-    async def _push(self, target: str, image):
+        await self._push(target, image, moment=moment)
+
+    async def _push(self, target: str, image, *, moment: Optional[int] = None):
         if target == SCREEN_TARGET:
             app, window = self._registry.frontmost()
-        else:
-            window = self._window_for(target)
-            app = None
-        await self.push_frame(
-            ScreenFrame(
+            frame = ScreenFrame(
                 target=target,
                 image=image,
                 timestamp=int(time.time()),
-                app=(window.app if window else None) if target != SCREEN_TARGET else (app.name if app else None),
+                app=app.name if app else None,
                 title=window.title if window else None,
+                role="screen",
+                moment=moment,
             )
-        )
+        else:
+            window = self._window_for(target)
+            frame = ScreenFrame(
+                target=target,
+                image=image,
+                timestamp=int(time.time()),
+                app=window.app if window else None,
+                title=window.title if window else None,
+                role="window",
+                moment=moment,
+                rect=tuple(int(v) for v in window.frame) if window else None,
+            )
+        await self.push_frame(frame)
 
     def _filter_for(self, target: str) -> tuple:
         cached = self._filters.get(target)

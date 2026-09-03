@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass
@@ -25,6 +26,11 @@ from processors.frames import QuestionFrame, ScreenFrame, VisionWatchlistFrame
 # An analysis that takes longer than this is assumed lost, so the image
 # branch accepts frames again.
 ANALYSIS_TIMEOUT_SECS = 45.0
+
+# A target is analysed at most this often however fast it changes.
+MIN_ANALYSIS_INTERVAL_SECS = 15.0
+# The screen still is context; the screen-wide watchlist is checked on it this often.
+SCREEN_ANALYSIS_INTERVAL_SECS = 30.0
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,9 @@ class SentFrame:
     key: str
     app: Optional[str] = None
     title: Optional[str] = None
+    role: str = "window"
+    moment: Optional[int] = None
+    rect: Optional[tuple[int, int, int, int]] = None
 
 
 class VisionQueryProcessor(FrameProcessor):
@@ -99,9 +108,18 @@ class VisionQueryProcessor(FrameProcessor):
 class VisionImageProcessor(FrameProcessor):
     """Describes changed screen frames and checks them against the watchlist.
 
-    One frame at a time: while the model works on one, others are skipped,
-    and unchanged frames are skipped outright. The worker calls
-    :meth:`set_idle` when an analysis finishes.
+    One frame at a time. While the model works on one, changed frames of
+    other targets wait, the newest per target, and go when it is idle; a
+    newer frame of the same target replaces the waiting one. Unchanged frames
+    are skipped outright. The worker calls :meth:`set_idle` when an analysis
+    finishes.
+
+    Cost is bounded per target: a window is analysed at most once every
+    ``MIN_ANALYSIS_INTERVAL_SECS`` however often it changes (a video, a
+    scrolling log), and the screen still, which is context now that the
+    windows carry the content, at most once every
+    ``SCREEN_ANALYSIS_INTERVAL_SECS`` so the screen-wide watchlist still sees
+    it. A frame that arrives too early waits and is replaced by newer ones.
     """
 
     def __init__(self, *, system_instruction: str, watchlist: Optional[List[WatchItem]] = None):
@@ -111,6 +129,11 @@ class VisionImageProcessor(FrameProcessor):
         self._watchlist_messages: List[LLMContextMessage] = []
         self._last_sent: Optional[SentFrame] = None
         self._busy_since: Optional[float] = None
+        # Changed frames waiting for the model, newest per target, in arrival order.
+        self._pending: Dict[str, ScreenFrame] = {}
+        # When each target was last sent, for the per-target interval.
+        self._sent_at: Dict[str, float] = {}
+        self._flush_task: Optional[asyncio.Task] = None
 
         # Fired with the analysis dict of a frame that matched watchlist items.
         self._register_event_handler("on_watchlist_hit")
@@ -131,8 +154,38 @@ class VisionImageProcessor(FrameProcessor):
         return sent
 
     def set_idle(self):
-        """The current analysis is over; the next changed frame may go."""
+        """The current analysis is over; the next waiting frame goes."""
         self._busy_since = None
+        self._schedule_flush()
+
+    def _interval_for(self, frame: ScreenFrame) -> float:
+        return SCREEN_ANALYSIS_INTERVAL_SECS if frame.role == "screen" else MIN_ANALYSIS_INTERVAL_SECS
+
+    def _due_in(self, frame: ScreenFrame) -> float:
+        """Seconds until this target may be analysed again; 0 if now."""
+        last = self._sent_at.get(frame.target)
+        return 0.0 if last is None else max(0.0, last + self._interval_for(frame) - time.monotonic())
+
+    def _schedule_flush(self):
+        if self._pending and (self._flush_task is None or self._flush_task.done()):
+            self._flush_task = self.create_task(self._flush())
+
+    async def _flush(self):
+        """Send the first waiting frame that is due; if none is, sleep until
+        the earliest becomes due and try again."""
+        while self._pending and not self.busy:
+            due = [(self._due_in(f), t) for t, f in self._pending.items()]
+            wait, target = min(due)
+            if wait > 0:
+                await asyncio.sleep(wait)
+                continue
+            frame = self._pending.pop(target)
+            await self._send(frame)
+            return
+
+    @property
+    def pending(self) -> int:
+        return len(self._pending)
 
     @property
     def busy(self) -> bool:
@@ -173,10 +226,16 @@ class VisionImageProcessor(FrameProcessor):
     async def _handle_screen_frame(self, frame: ScreenFrame):
         if not frame.changed:
             return
-        if self.busy:
-            logger.trace(f"{self}: busy, skipping {frame}")
+        if self.busy or self._due_in(frame) > 0:
+            # Newest frame per target waits; it goes when the model is idle
+            # and the target's interval has passed.
+            self._pending[frame.target] = frame
+            logger.trace(f"{self}: {frame.target} waits ({len(self._pending)} pending, due in {self._due_in(frame):.0f}s)")
+            self._schedule_flush()
             return
+        await self._send(frame)
 
+    async def _send(self, frame: ScreenFrame):
         # Only the items bound to this frame's target, plus the ones that
         # apply everywhere, numbered by their stable ids.
         items = watchlist_for(self._watchlist.values(), frame.target)
@@ -207,8 +266,12 @@ class VisionImageProcessor(FrameProcessor):
             key=frame.key or "",
             app=frame.app,
             title=frame.title,
+            role=frame.role,
+            moment=frame.moment,
+            rect=frame.rect,
         )
         self._busy_since = time.monotonic()
+        self._sent_at[frame.target] = self._busy_since
 
         all_messages = [system_message, *self._watchlist_messages, message]
 

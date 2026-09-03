@@ -550,6 +550,8 @@ class ScreenWorker(PipelineWorker):
             frame_hash=sent.key if sent else None,
             app=sent.app if sent else None,
             title=sent.title if sent else None,
+            moment=sent.moment if sent else None,
+            rect=list(sent.rect) if sent and sent.rect else None,
         )
 
         if sent and sent.key:
