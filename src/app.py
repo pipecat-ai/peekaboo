@@ -184,7 +184,7 @@ class App:
                     logger.warning(f"page request {message.type} failed: {e}")
                     await rtvi.send_error_response(message, str(e))
 
-        screen = ScreenWorker(store=store, source=source)
+        screen = ScreenWorker(store=store, source=source, registry=registry)
         vision = VisionWorker(store=store)
         history = HistoryWorker(store=store)
         ui = PeekabooUIWorker()

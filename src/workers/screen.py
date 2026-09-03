@@ -60,6 +60,14 @@ NOTIFICATION_WATCH = WatchItem(
 )
 
 
+def _split_wanted(wanted: str) -> tuple[str, str]:
+    """"Slack: Threads - Daily" from the picker -> ("Slack", "Threads - Daily")."""
+    if ": " in wanted:
+        app, title = wanted.split(": ", 1)
+        return app.strip(), title.strip()
+    return "", ""
+
+
 @dataclass
 class Watcher:
     """One thing someone asked to be told about, on one target."""
@@ -74,9 +82,23 @@ class Watcher:
     enabled: bool = True
     restored: bool = False
     """Recreated at startup: its hits go to the subscriber, not to a watch job."""
+    app: str = ""
+    """The app the watched window belongs to: the watcher follows the app when
+    that window goes away and comes back."""
+    window_title: str = ""
+    waiting: bool = False
+    """The app has no window right now; the watcher re-attaches when it does."""
 
     def describe(self) -> dict:
-        return {"id": self.id, "target": self.label, "condition": self.query, "enabled": self.enabled}
+        return {
+            "id": self.id,
+            "target": self.label,
+            "condition": self.query,
+            "enabled": self.enabled,
+            "app": self.app,
+            "window_title": self.window_title,
+            "waiting": self.waiting,
+        }
 
     def saved(self) -> dict:
         return {"wanted": self.wanted, "condition": self.query, "enabled": self.enabled}
@@ -222,10 +244,14 @@ class ScreenWorker(PipelineWorker):
         *,
         store: SQLiteStore,
         source: Optional[BaseFrameSource] = None,
+        registry=None,
         **kwargs,
     ):
         self._store = store
         self._frame_source = source or TransportScreenSource()
+        # With a window registry, watchers follow their app across its windows.
+        if registry is not None:
+            registry.on_event(self._on_registry_event)
         self._gate = ChangeGate()
         self._analyses: deque[float] = deque()
         self._stale_timers: dict[str, asyncio.Task] = {}
@@ -330,16 +356,27 @@ class ScreenWorker(PipelineWorker):
     async def _watch(self, message: BusJobRequestMessage):
         payload = message.payload or {}
         query = str(payload.get("query", ""))
-        wanted = str(payload.get("target") or "")
+        # ``target`` is what to resolve now (a window id from the picker, or
+        # the user's words); ``wanted`` is how to describe and later restore
+        # it, since window ids do not survive the app being relaunched.
+        target = str(payload.get("target") or "")
+        wanted = str(payload.get("wanted") or target)
 
         try:
-            watcher, resolved = await self._add_watcher(query, wanted, message.job_id)
+            watcher, resolved = await self._add_watcher(query, target, message.job_id, wanted=wanted)
         except Exception as e:  # noqa: BLE001 - reported to the requester
             await self.send_job_response(message.job_id, {"error": str(e)}, status=JobStatus.ERROR)
             return
         self._save()
 
         # Stays open. Hits and warnings arrive as urgent updates on this job.
+        if watcher.waiting:
+            await self.send_job_update(
+                message.job_id,
+                {"say": f"{watcher.app} isn't open right now; I'll watch it as soon as it is."},
+                urgent=True,
+            )
+            return
         if wanted and not resolved.exact:
             await self.send_job_update(
                 message.job_id,
@@ -352,8 +389,26 @@ class ScreenWorker(PipelineWorker):
         self._gate.reset(resolved.target)
         await self._frame_source.capture_now(resolved.target)
 
-    async def _add_watcher(self, query: str, wanted: str, job_id: str, *, enabled: bool = True, restored: bool = False):
-        resolved = self._frame_source.resolve(wanted)
+    async def _add_watcher(
+        self, query: str, target_text: str, job_id: str, *, wanted: Optional[str] = None, enabled: bool = True, restored: bool = False
+    ):
+        wanted = wanted or target_text
+        app_hint, title_hint = _split_wanted(wanted)
+        resolved = self._resolve(target_text, app_hint, title_hint)
+        window = self._frame_source.window_for(resolved.target) if hasattr(self._frame_source, "window_for") else None
+        app = window.app if window else ""
+        if not resolved.exact and app_hint and not app:
+            # The picker named an app whose window is gone (quit, or restarted
+            # with new window ids): the watcher waits for the app instead of
+            # watching the whole screen.
+            watcher = Watcher(
+                id=self._next_watcher_id, job_id=job_id, target="", label=app_hint, query=query,
+                wanted=wanted, enabled=enabled, restored=restored, app=app_hint, window_title=title_hint, waiting=True,
+            )
+            self._next_watcher_id += 1
+            self._watchers[watcher.id] = watcher
+            logger.info(f"{self}: watcher {watcher.id} waits for {app_hint}: {query}")
+            return watcher, resolved
         logger.debug(f"{self}: watch {resolved.target} ({resolved.label}): {query}")
         try:
             await self._frame_source.add_target(resolved.target)
@@ -368,12 +423,57 @@ class ScreenWorker(PipelineWorker):
             wanted=wanted,
             enabled=enabled,
             restored=restored,
+            app=app,
+            window_title=window.title if window else "",
         )
         self._next_watcher_id += 1
         self._watchers[watcher.id] = watcher
         if enabled:
             self._image_processor.add_watch(WatchItem(id=watcher.id, query=query, target=resolved.target))
         return watcher, resolved
+
+    def _resolve(self, target_text: str, app_hint: str, title_hint: str):
+        """The target as asked; failing that, the window with that title, then
+        the app's front window (window ids change when an app relaunches)."""
+        resolved = self._frame_source.resolve(target_text)
+        if resolved.exact or not (app_hint or title_hint):
+            return resolved
+        for attempt in (title_hint, app_hint):
+            if attempt:
+                candidate = self._frame_source.resolve(attempt)
+                if candidate.exact:
+                    return candidate
+        return resolved
+
+    def _on_registry_event(self, event):
+        """A window appeared: any watcher waiting for its app re-attaches."""
+        from macos.registry import EventKind
+
+        if event.kind not in (EventKind.OPENED, EventKind.SHOWN):
+            return
+        for watcher in list(self._watchers.values()):
+            if watcher.waiting and watcher.app and watcher.app == event.window.app:
+                self.create_task(self._reattach(watcher, event.window))
+
+    async def _reattach(self, watcher: Watcher, window):
+        if not watcher.waiting:
+            return
+        target = f"window:{window.id}"
+        try:
+            await self._frame_source.add_target(target)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"{self}: could not re-attach watcher {watcher.id} to {window.app}: {e}")
+            return
+        watcher.target = target
+        watcher.label = self._frame_source.label(target)
+        watcher.window_title = window.title
+        watcher.waiting = False
+        if watcher.enabled:
+            self._image_processor.add_watch(WatchItem(id=watcher.id, query=watcher.query, target=target))
+        self._gate.reset(target)
+        logger.info(f"{self}: watcher {watcher.id} re-attached to {watcher.label}")
+        await self.send_job_update(watcher.job_id, {"warning": f"{watcher.app} is back; I'm watching {watcher.label} again."}, urgent=True)
+        self._save()
 
     #
     # Persistence: the intent behind each watcher, restored at the next launch
@@ -701,7 +801,22 @@ class ScreenWorker(PipelineWorker):
     async def _on_target_lost(self, source, target: str, reason: str):
         self._cancel_stale_timer(target)
         self._stale_announced.discard(target)
-        for watcher in self._watchers_on(target):
+        for watcher in [w for w in self._watchers.values() if w.target == target]:
+            if watcher.app:
+                # The window is gone, the watcher stays with the app: it
+                # re-attaches when the app has a window again.
+                self._image_processor.remove_watch(watcher.id)
+                watcher.waiting = True
+                watcher.target = ""
+                logger.info(f"{self}: watcher {watcher.id} waits for {watcher.app}: {reason}")
+                if watcher.enabled:
+                    await self.send_job_update(
+                        watcher.job_id,
+                        {"warning": f"{watcher.app} closed; I'll pick {watcher.label} up again when it's back."},
+                        urgent=True,
+                    )
+                self._save()
+                continue
             await self.send_job_update(
                 watcher.job_id,
                 {"warning": f"I've stopped watching {watcher.label}: {reason}."},

@@ -121,6 +121,10 @@ class ScreenCaptureSource(BaseFrameSource):
             return Resolved(SCREEN_TARGET, "the screen", exact=False)
         return Resolved(self._target_for(window), self._label_for(window), exact=True)
 
+    def window_for(self, target: str) -> Optional[Window]:
+        """The registry window behind a ``window:<id>`` target, if it is still there."""
+        return self._window_for(target)
+
     def label(self, target: str) -> str:
         if target == SCREEN_TARGET:
             return "the screen"

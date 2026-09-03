@@ -819,10 +819,10 @@ class VoiceWorker(PipelineWorker):
         await self._start_watch(condition, target)
         await self._acknowledge(params, WATCH_FILLER)
 
-    async def _start_watch(self, condition: str, target: str) -> str:
+    async def _start_watch(self, condition: str, target: str, wanted: Optional[str] = None) -> str:
         job_id = await self.request_job(
             self._screen_worker,
-            params=JobParams(name="watch", payload={"query": condition, "target": target}),
+            params=JobParams(name="watch", payload={"query": condition, "target": target, "wanted": wanted or target}),
         )
         self._watch_jobs.add(job_id)
         return job_id
@@ -832,7 +832,9 @@ class VoiceWorker(PipelineWorker):
         """A watcher asked for from the app rather than aloud. Created here so
         its hits become spoken moments like any other."""
         payload = message.payload or {}
-        job_id = await self._start_watch(str(payload.get("condition", "")), str(payload.get("target") or ""))
+        job_id = await self._start_watch(
+            str(payload.get("condition", "")), str(payload.get("target") or ""), str(payload.get("wanted") or "") or None
+        )
         await self.send_job_response(message.job_id, {"started": True, "job_id": job_id})
 
     async def _acknowledge(self, params: FunctionCallParams, filler: str):

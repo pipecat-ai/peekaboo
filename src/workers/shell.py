@@ -267,13 +267,13 @@ class ShellWorker(BaseUIWorker):
     async def _rpc_watchers(self):
         return await self._watchers()
 
-    async def _rpc_watch(self, condition: str, target: str = ""):
+    async def _rpc_watch(self, condition: str, target: str = "", wanted: str = ""):
         """A watcher from the page. The voice worker creates it so its hits
         are spoken, like a watch asked for aloud."""
         try:
             async with self.job(
                 self._voice_worker,
-                params=JobParams(name="watch", payload={"condition": str(condition), "target": str(target)}, timeout=10),
+                params=JobParams(name="watch", payload={"condition": str(condition), "target": str(target), "wanted": str(wanted or target)}, timeout=10),
             ) as t:
                 pass
         except JobError as e:

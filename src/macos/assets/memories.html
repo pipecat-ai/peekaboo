@@ -1095,14 +1095,14 @@ function renderWatchers(state) {
   builtin.querySelector(".toggle").onchange = (e) => call("enable_watcher", { id: 0, enabled: e.target.checked });
   list.appendChild(builtin);
   for (const w of watchers) {
-    const app = (w.target || "").replace(/^the /, "").replace(/ window$/, "");
-    const isScreen = app === "screen";
+    const app = w.app || (w.target || "").replace(/^the /, "").replace(/ window$/, "");
+    const isScreen = !w.app && app === "screen";
     const on = w.enabled !== false;
     const el = document.createElement("div"); el.className = "wrow" + (on ? "" : " off");
     el.innerHTML = `<input type="checkbox" class="toggle" ${on ? "checked" : ""} title="${on ? "Pause this watcher" : "Resume this watcher"}">
       ${appIcon(isScreen ? "Screen" : app, "bigicon")}
       <div class="what"><div class="top"><b>${esc(isScreen ? "The screen" : app)}</b><span>${esc(w.window_title || "")}</span></div><div class="cond">${esc(w.condition)}</div></div>
-      <div class="state">${!on ? `<span class="pill indigo">paused</span>` : w.stale ? `<span class="pill amber"><span class="d"></span>can't see it</span><span class="sub">${esc(w.stale)}</span>` : `<span class="pill green"><span class="d"></span>watching · 1 fps</span>`}</div>
+      <div class="state">${!on ? `<span class="pill indigo">paused</span>` : w.waiting ? `<span class="pill amber"><span class="d"></span>waiting for ${esc(app)}</span><span class="sub">not open right now</span>` : w.stale ? `<span class="pill amber"><span class="d"></span>can't see it</span><span class="sub">${esc(w.stale)}</span>` : `<span class="pill green"><span class="d"></span>watching · 1 fps</span>`}</div>
       <button class="remove" title="Remove this watcher">${TRASH}</button>`;
     el.setAttribute("role", "listitem"); el.setAttribute("aria-label", `Watcher on ${isScreen ? "the screen" : app}: ${w.condition}${on ? "" : " (paused)"}`);
     for (const c of el.children) if (!c.matches("input, button")) c.setAttribute("data-a11y-exclude", "");
@@ -1133,23 +1133,27 @@ function renderPicker() {
     const wins = a.windows.filter((w) => !f || a.app.toLowerCase().includes(f) || w.title.toLowerCase().includes(f));
     if (!wins.length) continue;
     p.insertAdjacentHTML("beforeend", `<div class="app" data-a11y-exclude>${appIcon(a.app)}<span>${esc(a.app)}</span><span class="n">${a.windows.length} window${a.windows.length === 1 ? "" : "s"}</span></div>`
-      + wins.map((w) => `<div class="win${pickerSel.app === a.app && pickerSel.title === w.title ? " sel" : ""}" data-app="${esc(a.app)}" data-title="${esc(w.title)}">${esc(w.title || "(untitled)")}${w.tabs ? `<span class="n mono" style="margin-left:6px">· ${w.tabs} tabs</span>` : ""}</div>`).join(""));
+      + wins.map((w) => `<div class="win${pickerSel.app === a.app && pickerSel.title === w.title ? " sel" : ""}" data-app="${esc(a.app)}" data-title="${esc(w.title)}" data-id="${w.id}">${esc(w.title || "(untitled)")}${w.tabs ? `<span class="n mono" style="margin-left:6px">· ${w.tabs} tabs</span>` : ""}</div>`).join(""));
   }
   p.querySelectorAll(".win").forEach((el) => {
     el.setAttribute("role", "button");
     el.setAttribute("aria-label", el.dataset.screen ? "The whole screen" : `${el.dataset.app} window: ${el.dataset.title}`);
     el.setAttribute("aria-selected", el.classList.contains("sel") ? "true" : "false");
-    el.onclick = () => { pickerSel = el.dataset.screen ? { screen: true } : { app: el.dataset.app, title: el.dataset.title }; renderPicker(); };
+    el.onclick = () => { pickerSel = el.dataset.screen ? { screen: true } : { app: el.dataset.app, title: el.dataset.title, id: el.dataset.id }; renderPicker(); };
   });
-  $("#wtarget").textContent = screenSel ? "Watching the whole screen." : `Watching the ${pickerSel.app} window “${pickerSel.title || "(untitled)"}”. Only that window.`;
+  $("#wtarget").textContent = screenSel ? "Watching the whole screen." : `Watching ${pickerSel.app}: “${pickerSel.title || "(untitled)"}”. Follows ${pickerSel.app} if that window closes.`;
+  $("#wcond").placeholder = screenSel ? "the build finishes or fails" : `something happens in ${pickerSel.app}: new messages, a reply, an error…`;
 }
 $("#wfilter").addEventListener("input", renderPicker);
 $("#startwatch").onclick = async () => {
   const cond = $("#wcond").value.trim();
   if (!cond) { $("#wcond").focus(); return; }
-  const target = pickerSel && !pickerSel.screen ? pickerSel.title : "";
+  // The window by id, which does not drift like a title; "App: title" is
+  // for the list, for following the app, and for restoring after a relaunch.
+  const target = pickerSel && !pickerSel.screen ? `window:${pickerSel.id}` : "";
+  const wanted = pickerSel && !pickerSel.screen ? `${pickerSel.app}: ${pickerSel.title}` : "";
   $("#startwatch").disabled = true;
-  try { await call("watch", { condition: cond, target }); } finally { $("#startwatch").disabled = false; }
+  try { await call("watch", { condition: cond, target, wanted }); } finally { $("#startwatch").disabled = false; }
   $("#wcond").value = ""; pickerSel = null; renderPicker(); loadWatchers();
 };
 $("#newwatch").onclick = () => { show("watchers"); $("#wcond").focus(); };

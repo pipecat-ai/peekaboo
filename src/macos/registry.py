@@ -18,6 +18,7 @@ they can be tested without pyobjc.
 
 import asyncio
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -246,6 +247,12 @@ def find_window(windows: list[Window], query: str) -> Optional[Window]:
     then a generic alias ("terminal", "browser"); within a tier the biggest
     on-screen window wins.
     """
+    # A window named by id ("window:1681") is that window and nothing else:
+    # titles drift ("1 new item" becomes "3 new items"), ids do not.
+    by_id = re.fullmatch(r"window:(\d+)", (query or "").strip())
+    if by_id:
+        wanted_id = int(by_id.group(1))
+        return next((w for w in windows if w.id == wanted_id), None)
     q = normalize_query(query)
     if not q:
         return None

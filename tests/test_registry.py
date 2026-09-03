@@ -117,3 +117,23 @@ def test_collapse_tabs_folds_same_frame_siblings_into_the_visible_one():
     assert [w.id for w in folded] == [2, 4, 5]
     assert folded[0].tabs == ("~", "aleix@mac:~")
     assert folded[2].tabs == ()  # a different app with the same frame is not a tab
+
+
+def test_find_window_by_id_is_exact():
+    from macos.registry import Window, find_window
+
+    windows = [
+        Window(id=10, title="Threads - Daily - 3 new items - Slack", app="Slack", bundle_id="com.tinyspeck.slackmacgap", pid=1, frame=(0, 0, 800, 600), on_screen=True),
+        Window(id=11, title="tmux", app="Ghostty", bundle_id="com.mitchellh.ghostty", pid=2, frame=(0, 0, 800, 600), on_screen=True),
+    ]
+    assert find_window(windows, "window:10").id == 10
+    assert find_window(windows, "window:99") is None
+    assert find_window(windows, "slack").id == 10
+
+
+def test_split_wanted_reads_the_pickers_app_and_title():
+    from workers.screen import _split_wanted
+
+    assert _split_wanted("Slack: Threads - Daily") == ("Slack", "Threads - Daily")
+    assert _split_wanted("Slack: ! ext-daily: Channel") == ("Slack", "! ext-daily: Channel")
+    assert _split_wanted("the terminal") == ("", "")
