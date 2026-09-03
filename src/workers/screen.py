@@ -524,6 +524,29 @@ class ScreenWorker(PipelineWorker):
         for future in self._waiting.pop(frame.target, []):
             if not future.done():
                 future.set_result(frame)
+        if frame.role == "screen" and frame.moment is not None and frame.changed and frame.key:
+            await self._keep_still(frame)
+
+    async def _keep_still(self, frame: ScreenFrame):
+        """The screen still of a moment, stored as it is: the context the
+        window frames sit in. Not analysed here; the image processor looks at
+        the screen on its own, slower cadence for the screen-wide watchlist."""
+        shot, thumb = await self._store.save_frame(frame.image, frame.timestamp, frame.key)
+        await self._store.add(
+            Observation(
+                timestamp=frame.timestamp,
+                target=frame.target,
+                kind="screen",
+                content="",
+                app=frame.app,
+                title=frame.title,
+                frame_hash=frame.key,
+                screenshot_path=shot,
+                thumbnail_path=thumb,
+                moment=frame.moment,
+                rect=list(frame.rect) if frame.rect else None,
+            )
+        )
 
     async def _on_analysis_finished(self, processor, ok: bool):
         self._image_processor.set_idle()

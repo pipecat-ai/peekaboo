@@ -9,7 +9,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-ObservationKind = Literal["description", "watchlist"]
+ObservationKind = Literal["description", "watchlist", "screen"]
+"""``screen``: a display still kept as context for its moment, not analysed."""
 
 
 class Observation(BaseModel):

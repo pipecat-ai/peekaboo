@@ -232,6 +232,8 @@ class ScreenCaptureSource(BaseFrameSource):
     async def _push(self, target: str, image, *, moment: Optional[int] = None):
         if target == SCREEN_TARGET:
             app, window = self._registry.frontmost()
+            displays = self._registry.displays
+            bounds = displays[0].frame() if displays else None
             frame = ScreenFrame(
                 target=target,
                 image=image,
@@ -240,6 +242,13 @@ class ScreenCaptureSource(BaseFrameSource):
                 title=window.title if window else None,
                 role="screen",
                 moment=moment,
+                # The display's bounds in points, so window rectangles can be
+                # placed on the still whatever it was scaled to.
+                rect=(
+                    (int(bounds.origin.x), int(bounds.origin.y), int(bounds.size.width), int(bounds.size.height))
+                    if bounds is not None
+                    else None
+                ),
             )
         else:
             window = self._window_for(target)

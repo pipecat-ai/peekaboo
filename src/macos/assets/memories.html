@@ -113,6 +113,14 @@
   .stage { flex: 1; min-width: 0; background: var(--stage); display: flex; align-items: center; justify-content: center; padding: 28px; }
   .stage img { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.4); }
   .stage .none { color: #9A9AA0; }
+  .stage .map { position: relative; display: inline-block; max-width: 100%; max-height: 100%; line-height: 0; }
+  .stage .map img { display: block; max-width: 100%; max-height: calc(100vh - 230px); }
+  .stage .map .win { position: absolute; border: 1.5px solid rgba(255,255,255,.55); border-radius: 4px; box-sizing: border-box; }
+  .stage .map .win:hover { border-color: var(--accent); background: rgba(53,86,214,.16); }
+  .stage .map .win.on { border: 2px solid var(--accent); box-shadow: 0 0 0 2px rgba(53,86,214,.35); }
+  .stage .map .win .tag { position: absolute; left: -2px; top: -22px; font: 500 11px/18px -apple-system, sans-serif; background: var(--accent); color: #fff; padding: 0 7px; border-radius: 4px; white-space: nowrap; display: none; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+  .stage .map .win:hover .tag, .stage .map .win.on .tag { display: block; }
+  .stage .map .win.on { z-index: 1; }
   .side-panel { width: 320px; flex-shrink: 0; border-left: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 18px; padding: 20px; overflow-y: auto; }
   .side-panel .block { display: flex; flex-direction: column; gap: 4px; }
   .side-panel .window { font-weight: 500; line-height: 1.4; }
@@ -314,7 +322,7 @@
     <div class="head" data-drag>
       <span class="btn small" id="back" role="button" aria-label="Back"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span id="backlabel">Ask</span></span>
       <div class="who" id="vwho"></div>
-      <div class="right"><button class="btn primary" id="openlink" hidden>Open link</button></div>
+      <div class="right"><div class="seg" id="vview" hidden role="group" aria-label="View"><span class="on" data-view="screen" role="button" aria-label="Show the whole screen">Screen</span><span data-view="window" role="button" aria-label="Show the window alone">Window</span></div><button class="btn primary" id="openlink" hidden>Open link</button></div>
     </div>
     <div class="stage-row">
       <div class="stage" id="stage" role="img" aria-label="No memory open"><div class="none">Pick a memory</div></div>
@@ -563,20 +571,59 @@ async function showRecent() {
 }
 
 // ---- viewer -----------------------------------------------------------
+// A memory with a moment opens as that moment: the screen still on the
+// stage, the windows captured with it outlined and clickable, the filmstrip
+// stepping through the moments around. Older memories, recorded as one
+// screen frame, open as before.
+let moment = null;        // {moment, screen, windows} shown, or null
+let vview = "screen";     // "screen" (the map) or "window" (the frame alone)
 async function openViewer(o, context) {
   current = o;
   show("viewer");
   $("#backlabel").textContent = { ask: "Ask", timeline: "Timeline", watchers: "Watchers", settings: "Settings" }[lastScreen] || "Back";
-  strip = context && context.length > 1 ? [...context].sort((a, b) => a.ts - b.ts) : await call("around", { id: o.id, n: 8 });
-  await loadIcons(strip);
+  if (o.moment) {
+    moment = await call("moment", { moment: o.moment });
+    strip = await call("moments_around", { moment: o.moment, n: 8 });
+    if (!strip.length && moment.screen) strip = [moment.screen];
+    vview = o.kind === "screen" ? "screen" : vview;
+    if (o.kind === "screen") current = moment.windows[0] || o;
+  } else {
+    moment = null;
+    strip = context && context.length > 1 ? [...context].sort((a, b) => a.ts - b.ts) : await call("around", { id: o.id, n: 8 });
+  }
+  await loadIcons(strip.concat(moment ? moment.windows : []));
   render();
 }
+async function openMoment(m, keepApp) {
+  // Another moment in the filmstrip: keep looking at the same window if it is there.
+  moment = await call("moment", { moment: m });
+  await loadIcons(moment.windows);
+  const same = keepApp ? moment.windows.find((w) => w.app === keepApp) : null;
+  current = same || moment.windows[0] || moment.screen;
+  render();
+}
+function selectWindow(w) { current = w; render(); }
+$("#vview").querySelectorAll("span").forEach((el) => { el.onclick = () => { vview = el.dataset.view; render(); }; });
 function render() {
   const o = current; if (!o) return;
-  $("#vwho").innerHTML = `${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${whenLabel(o.ts)}</span>`;
-  $("#stage").innerHTML = o.screenshot_url ? `<img src="${o.screenshot_url}" alt="">` : `<div class="none">The screenshot for this memory has been pruned.</div>`;
-  $("#stage").setAttribute("aria-label", `Screenshot of ${o.app || "the screen"}${o.title ? ` (${o.title})` : ""} at ${whenLabel(o.ts)}`);
-  $("#vwindow").textContent = o.title || "—";
+  const screen = moment && moment.screen;
+  $("#vview").hidden = !(moment && screen && o.kind !== "screen");
+  $("#vview").querySelectorAll("span").forEach((el) => el.classList.toggle("on", el.dataset.view === vview));
+  if (moment && screen) {
+    // The moment: focus in the header, the screen as the map, or the chosen window alone.
+    $("#vwho").innerHTML = `${appIcon(screen.app)}<b>in ${esc(screen.app || "the screen")}</b><span class="time">${whenLabel(screen.ts)}</span><span class="time">· ${moment.windows.length} ${moment.windows.length === 1 ? "window" : "windows"}</span>`;
+    if (vview === "window" && o.kind !== "screen" && o.screenshot_url) {
+      $("#stage").innerHTML = `<img src="${o.screenshot_url}" alt="">`;
+      $("#stage").setAttribute("aria-label", `Window ${o.app || ""}${o.title ? ` (${o.title})` : ""} at ${whenLabel(o.ts)}`);
+    } else {
+      renderMap(screen, moment.windows, o);
+    }
+  } else {
+    $("#vwho").innerHTML = `${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${whenLabel(o.ts)}</span>`;
+    $("#stage").innerHTML = o.screenshot_url ? `<img src="${o.screenshot_url}" alt="">` : `<div class="none">The screenshot for this memory has been pruned.</div>`;
+    $("#stage").setAttribute("aria-label", `Screenshot of ${o.app || "the screen"}${o.title ? ` (${o.title})` : ""} at ${whenLabel(o.ts)}`);
+  }
+  $("#vwindow").textContent = moment ? `${o.app || "Screen"}${o.title ? ` · ${o.title}` : ""}` : (o.title || "—");
   $("#vdesc").innerHTML = hi(o.content);
   const verb = o.verbatim_text || [];
   $("#vverbblock").hidden = !verb.length;
@@ -585,24 +632,42 @@ function render() {
   $("#vlinkblock").hidden = !link; $("#openlink").hidden = !link;
   if (link) { $("#vlink").textContent = link; $("#vlink").onclick = (e) => { e.preventDefault(); call("open_url", { url: link }); }; $("#openlink").onclick = () => call("open_url", { url: link }); }
   const tiles = $("#tiles"); tiles.innerHTML = "";
+  const isOn = (s) => (moment ? s.moment === moment.moment : s.id === o.id);
   for (const s of strip) {
     const t = document.createElement("div");
-    t.className = "tile" + (s.id === o.id ? " on" : "");
+    t.className = "tile" + (isOn(s) ? " on" : "");
     t.style.background = s.thumbnail_url ? `url("${s.thumbnail_url}") top / cover` : appColor(s.app);
     t.title = `${s.app || "Screen"} · ${hhmmss(s.ts)}`;
-    t.setAttribute("role", "button"); t.setAttribute("aria-label", `${s.app || "Screen"} at ${hhmmss(s.ts)}`); t.setAttribute("aria-selected", s.id === o.id ? "true" : "false");
-    t.onclick = () => { current = s; render(); };
+    t.setAttribute("role", "button"); t.setAttribute("aria-label", `${moment ? "Moment in " : ""}${s.app || "Screen"} at ${hhmmss(s.ts)}`); t.setAttribute("aria-selected", isOn(s) ? "true" : "false");
+    t.onclick = () => { if (moment) openMoment(s.moment, current && current.app); else { current = s; render(); } };
     tiles.appendChild(t);
   }
-  const first = strip[0], last = strip[strip.length - 1];
-  $("#striplabels").innerHTML = first ? `<span>${hhmm(first.ts)}</span><span class="now">${hhmmss(o.ts)}</span><span>${hhmm(last.ts)}</span><span>← → step frames · space to play</span>` : "";
+  const first = strip[0], last = strip[strip.length - 1], nowTs = moment && screen ? screen.ts : o.ts;
+  $("#striplabels").innerHTML = first ? `<span>${hhmm(first.ts)}</span><span class="now">${hhmmss(nowTs)}</span><span>${hhmm(last.ts)}</span><span>← → step ${moment ? "moments" : "frames"} · space to play</span>` : "";
   const on = tiles.querySelector(".tile.on"); if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
 }
 function step(delta) {
   if (!current) return;
-  const i = strip.findIndex((s) => s.id === current.id);
+  const i = moment ? strip.findIndex((s) => s.moment === moment.moment) : strip.findIndex((s) => s.id === current.id);
   const j = i + delta;
-  if (j >= 0 && j < strip.length) { current = strip[j]; render(); }
+  if (j < 0 || j >= strip.length) return;
+  if (moment) openMoment(strip[j].moment, current.app); else { current = strip[j]; render(); }
+}
+// The screen still with the windows captured in the same moment outlined on
+// it. Rectangles are in display points; the image is a scaled display, so
+// percentages of the display bounds place them whatever the size.
+function renderMap(screen, windows, selected) {
+  const [sx, sy, sw, sh] = screen.rect || [0, 0, 1, 1];
+  const outlines = windows.filter((w) => w.rect).map((w) => {
+    const [x, y, ww, wh] = w.rect;
+    const style = `left:${((x - sx) / sw) * 100}%;top:${((y - sy) / sh) * 100}%;width:${(ww / sw) * 100}%;height:${(wh / sh) * 100}%`;
+    return `<div class="win${selected && w.id === selected.id ? " on" : ""}" data-id="${w.id}" style="${style}" role="button" aria-label="${esc(w.app || "Window")}${w.title ? `: ${esc(w.title)}` : ""}" aria-selected="${selected && w.id === selected.id ? "true" : "false"}"><span class="tag" data-a11y-exclude>${esc(w.app || "")}${w.title ? ` · ${esc(brief(w.title, 60))}` : ""}</span></div>`;
+  });
+  $("#stage").innerHTML = screen.screenshot_url
+    ? `<div class="map"><img src="${screen.screenshot_url}" alt="">${outlines.join("")}</div>`
+    : `<div class="none">The screen still for this moment has been pruned.</div>`;
+  $("#stage").setAttribute("aria-label", `The screen at ${whenLabel(screen.ts)}, in ${screen.app || "the screen"}, with ${windows.length} windows outlined`);
+  $("#stage").querySelectorAll(".win").forEach((el) => { el.onclick = (e) => { e.stopPropagation(); const w = windows.find((x) => String(x.id) === el.dataset.id); if (w) selectWindow(w); }; });
 }
 $("#back").onclick = () => { stopPlay(); show(lastScreen); };
 function stopPlay() { if (playing) { clearInterval(playing); playing = null; } }
@@ -648,8 +713,8 @@ async function loadDay() {
   document.querySelector("#timeline .daypick").hidden = zoomed;
   if (zoomed) toggleCal(false);
   $("#nextday").style.opacity = today ? .4 : 1;
-  const [tracks, frames] = await Promise.all([call("day_tracks", { date: day }), call("day_frames", { date: day })]);
-  dayFrames = frames;
+  const [tracks, frames, stills] = await Promise.all([call("day_tracks", { date: day }), call("day_frames", { date: day }), call("day_stills", { date: day })]);
+  dayFrames = frames; dayStills = stills;
   const rows = $("#rows"); rows.innerHTML = "";
   const apps = new Map();
   const hours = tracks.hours.filter((h) => h.count > 0);
@@ -670,6 +735,7 @@ async function loadDay() {
     el.innerHTML = `<div class="hour zoomable" role="button" aria-label="${pad(row.hour)}:00: ${row.count} ${row.count === 1 ? "memory" : "memories"}${zoomHour !== null ? ", zoomed in" : ""}" title="${zoomHour !== null ? "Back to the whole day" : "Zoom into this hour"}">${pad(row.hour)}:00</div><div class="track" data-hour="${h}"${zoomHour === null ? " data-a11y-exclude" : ""}>${inner}</div><div class="count" data-a11y-exclude>${row.count}</div>`;
     const track = el.querySelector(".track");
     row.frames = dayFrames.filter((o) => o.ts >= row.start && o.ts < row.start + 3600);
+    row.stills = dayStills.filter((o) => o.ts >= row.start && o.ts < row.start + 3600);
     el.querySelector(".hour").onclick = () => { zoomHour = zoomHour === null ? h : null; loadDay(); };
     track.onmousedown = (e) => beginDrag(row, e);
     track.onclick = (e) => { if (suppressClick) { suppressClick = false; return; } if (e.shiftKey && tlRange) { extendRange(row, e); return; } scrub(row, e); };
@@ -822,7 +888,8 @@ async function applyTimeline(p) {
 let dayTracks = null;
 let stripItems = [];     // the clicked block's memories, oldest first
 let stripBlock = null;   // the block they came from
-let dayFrames = [];      // every memory of the shown day, oldest first
+let dayFrames = [];      // every content memory (window frame) of the shown day, oldest first
+let dayStills = [];      // the day's screen stills, what the scrubber shows
 let hoverRaf = 0;
 const MAX_LEGEND = 6;
 
@@ -862,7 +929,8 @@ function hover(row, e) {
     hoverRaf = 0;
     const rect = track.getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    const o = nearestFrame(row.start + frac * 3600, row.frames || []);
+    // Scrub through the screen stills when the day has them; older days have only frames.
+    const o = nearestFrame(row.start + frac * 3600, (row.stills && row.stills.length ? row.stills : row.frames) || []);
     track.querySelectorAll(".marker.hover, .marker-label.hover").forEach((m) => m.remove());
     const tip = $("#tip");
     if (!o || !seg) { tip.hidden = true; return; }
@@ -871,8 +939,8 @@ function hover(row, e) {
     const b = row.blocks.find((k) => String(k.from) === seg.dataset.key);
     const others = b ? Object.entries(b.apps).filter(([a]) => a !== b.app).map(([a, n]) => `${a} ${n}`) : [];
     tip.innerHTML = `<div class="shot">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
-      <div class="who">${appIcon(o.app)}<span>${esc(o.app || "Screen")}</span><span class="sub">${hhmmss(o.ts)}</span></div>
-      <div class="title">${esc(o.title || o.content.split(".")[0])}</div>
+      <div class="who">${appIcon(o.app)}<span>${o.kind === "screen" ? "in " : ""}${esc(o.app || "Screen")}</span><span class="sub">${hhmmss(o.ts)}</span></div>
+      <div class="title">${esc(o.title || (o.content ? o.content.split(".")[0] : ""))}</div>
       ${b ? `<div class="sub"><span class="sw" style="background:${appColor(b.app)}"></span>${esc(b.app)} ${pad(row.hour)}:${pad(b.from)}–${pad(row.hour)}:${pad(b.to + 1)} · ${b.ids.length} ${b.ids.length === 1 ? "memory" : "memories"}${others.length ? ` · also ${esc(others.join(", "))}` : ""}</div>` : ""}`;
     tip.hidden = false;
     const r = tip.getBoundingClientRect();

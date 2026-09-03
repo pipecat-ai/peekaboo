@@ -330,20 +330,33 @@ class ShellWorker(BaseUIWorker):
         day_start = datetime.combine(_parse_day(date), datetime.min.time())
         rows = await self._store.timeline(since=day_start, until=day_start + timedelta(days=1), limit=5000)
         rows.sort(key=lambda o: (o.timestamp, o.id or 0))
+        stills = await self._store.stills(since=day_start, until=day_start + timedelta(days=1))
         t0 = int(day_start.timestamp())
         cells: dict[int, dict] = {}
         totals: Counter = Counter()
         for o in rows:
             minute = (o.timestamp - t0) // 60
             app = o.app or "Screen"
-            cell = cells.setdefault(minute, {"minute": minute % 60, "hour": minute // 60, "apps": Counter(), "ids": []})
+            cell = cells.setdefault(minute, {"minute": minute % 60, "hour": minute // 60, "apps": Counter(), "focus": Counter(), "ids": []})
             cell["apps"][app] += 1
             cell["ids"].append(o.id)
             totals[app] += 1
+        # The colour of a minute is the focus: the app in front, from the
+        # screen stills. Minutes with content but no still keep the app that
+        # changed most, which is what pre-M7 days have.
+        for o in stills:
+            minute = (o.timestamp - t0) // 60
+            if minute in cells and o.app:
+                cells[minute]["focus"][o.app] += 1
         hours = []
         for hour in range(24):
             minutes = [
-                {"minute": c["minute"], "app": c["apps"].most_common(1)[0][0], "apps": dict(c["apps"]), "ids": c["ids"]}
+                {
+                    "minute": c["minute"],
+                    "app": (c["focus"].most_common(1) or c["apps"].most_common(1))[0][0],
+                    "apps": dict(c["apps"]),
+                    "ids": c["ids"],
+                }
                 for m, c in sorted(cells.items())
                 if c["hour"] == hour
             ]
@@ -351,12 +364,35 @@ class ShellWorker(BaseUIWorker):
         return {"date": date, "hours": hours, "apps": [{"app": a, "count": n} for a, n in totals.most_common()]}
 
     async def _rpc_day_frames(self, date: str):
-        """Every memory of the day, oldest first, so the timeline can scrub
-        without a round trip per mouse move."""
+        """Every content memory of the day (window frames), oldest first, for
+        the strip and range selection."""
         day_start = datetime.combine(_parse_day(date), datetime.min.time())
         rows = await self._store.timeline(since=day_start, until=day_start + timedelta(days=1), limit=5000)
         rows.sort(key=lambda o: (o.timestamp, o.id or 0))
         return [self._for_page(o) for o in rows]
+
+    async def _rpc_day_stills(self, date: str):
+        """The day's screen stills, oldest first: what the timeline scrubs
+        through, one per changed tick."""
+        day_start = datetime.combine(_parse_day(date), datetime.min.time())
+        rows = await self._store.stills(since=day_start, until=day_start + timedelta(days=1))
+        return [self._for_page(o) for o in rows]
+
+    async def _rpc_moment(self, moment: int):
+        """One recording tick: its screen still and the window frames in it."""
+        rows = await self._store.moment(int(moment))
+        screen = next((o for o in rows if o.kind == "screen"), None)
+        windows = [o for o in rows if o.kind != "screen" and o.target != "screen"]
+        return {"moment": int(moment), "screen": self._for_page(screen) if screen else None, "windows": [self._for_page(o) for o in windows]}
+
+    async def _rpc_moments_around(self, moment: int, n: int = 8):
+        """The screen stills around a moment, for the viewer's filmstrip."""
+        center = datetime.fromtimestamp(int(moment))
+        rows = await self._store.stills(since=center - timedelta(hours=1), until=center + timedelta(hours=1))
+        index = next((i for i, o in enumerate(rows) if o.moment == int(moment)), None)
+        if index is None:
+            return []
+        return [self._for_page(o) for o in rows[max(0, index - int(n)) : index + int(n) + 1]]
 
     async def _rpc_around(self, id: int, n: int = 8):
         """The observations around one, for the viewer's filmstrip."""

@@ -26,6 +26,12 @@ FRAMES_DIR = "frames"
 SCHEMA_VERSION = 2
 IMAGE_RETENTION_DAYS = 7
 
+# Content rows: window frames, and screen descriptions recorded before windows
+# were (they have no moment). Screen stills and screen descriptions taken as
+# part of a moment are context, kept for the stage and the scrubber.
+CONTENT = "NOT (target = 'screen' AND moment IS NOT NULL)"
+CONTENT_O = "NOT (o.target = 'screen' AND o.moment IS NOT NULL)"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
     id INTEGER PRIMARY KEY,
@@ -382,13 +388,35 @@ class SQLiteStore:
         self._db.commit()
 
     async def recent(self, limit: int = 10) -> list[Observation]:
-        """The newest observations, newest first."""
+        """The newest content observations (window frames, and screen
+        descriptions from before windows were recorded), newest first."""
         return await self._run(self._recent_sync, limit)
 
     def _recent_sync(self, limit: int) -> list[Observation]:
         rows = self._db.execute(
-            "SELECT * FROM observations ORDER BY ts DESC, id DESC LIMIT ?", (limit,)
+            f"SELECT * FROM observations WHERE {CONTENT} ORDER BY ts DESC, id DESC LIMIT ?", (limit,)
         ).fetchall()
+        return [_row_to_observation(r) for r in rows]
+
+    async def stills(self, since: Optional[datetime] = None, until: Optional[datetime] = None, limit: int = 5000):
+        """The screen stills in a time window, oldest first: the context of
+        each moment, for scrubbing and the viewer's stage."""
+        return await self._run(self._stills_sync, _to_ts(since, 0), _to_ts(until, 2**62), limit)
+
+    def _stills_sync(self, since: int, until: int, limit: int) -> list[Observation]:
+        rows = self._db.execute(
+            "SELECT * FROM observations WHERE kind = 'screen' AND ts BETWEEN ? AND ? ORDER BY ts, id LIMIT ?",
+            (since, until, limit),
+        ).fetchall()
+        return [_row_to_observation(r) for r in rows]
+
+    async def moment(self, moment: int) -> list[Observation]:
+        """Everything captured in one recording tick: the screen still and the
+        window frames analysed from it."""
+        return await self._run(self._moment_sync, int(moment))
+
+    def _moment_sync(self, moment: int) -> list[Observation]:
+        rows = self._db.execute("SELECT * FROM observations WHERE moment = ? ORDER BY ts, id", (moment,)).fetchall()
         return [_row_to_observation(r) for r in rows]
 
     async def search(
@@ -409,10 +437,10 @@ class SQLiteStore:
 
     def _search_sync(self, match: str, since: int, until: int, limit: int):
         rows = self._db.execute(
-            """
+            f"""
             SELECT o.* FROM observations_fts f
             JOIN observations o ON o.id = f.rowid
-            WHERE observations_fts MATCH ? AND o.ts BETWEEN ? AND ?
+            WHERE observations_fts MATCH ? AND o.ts BETWEEN ? AND ? AND {CONTENT_O}
             ORDER BY bm25(observations_fts), o.ts DESC
             LIMIT ?
             """,
@@ -434,7 +462,7 @@ class SQLiteStore:
 
     def _timeline_sync(self, since: int, until: int, limit: int):
         rows = self._db.execute(
-            "SELECT * FROM observations WHERE ts BETWEEN ? AND ? ORDER BY ts, id LIMIT ?",
+            f"SELECT * FROM observations WHERE ts BETWEEN ? AND ? AND {CONTENT} ORDER BY ts, id LIMIT ?",
             (since, until, limit),
         ).fetchall()
         return [_row_to_observation(r) for r in rows]

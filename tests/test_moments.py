@@ -192,3 +192,29 @@ def test_store_finds_past_questions_by_words(tmp_path):
             await store.close()
 
     asyncio.run(go())
+
+
+def test_store_separates_content_from_screen_stills(tmp_path):
+    import asyncio
+
+    from store.models import Observation
+    from store.sqlite_store import SQLiteStore
+
+    async def go():
+        store = SQLiteStore(root=tmp_path)
+        await store.open()
+        try:
+            still = await store.add(Observation(timestamp=1000, target="screen", kind="screen", content="", app="Ghostty", moment=1000, rect=[0, 0, 1728, 1117]))
+            win = await store.add(Observation(timestamp=1001, target="window:7", content="tmux running tests", app="Ghostty", title="tmux", moment=1000, rect=[10, 20, 800, 600]))
+            old = await store.add(Observation(timestamp=900, target="screen", content="a desktop with a terminal", app="Ghostty"))
+            recent = [o.id for o in await store.recent(10)]
+            assert win.id in recent and old.id in recent and still.id not in recent
+            assert [o.id for o in await store.stills()] == [still.id]
+            assert {o.id for o in await store.moment(1000)} == {still.id, win.id}
+            found = await store.search("tests")
+            assert [o.id for o in found] == [win.id]
+            assert (await store.get([still.id]))[0].rect == [0, 0, 1728, 1117]
+        finally:
+            await store.close()
+
+    asyncio.run(go())
