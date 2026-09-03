@@ -43,6 +43,10 @@ REFRESH_SECS = 2.0
 RECENT_ITEMS = 10
 
 
+# What a fresh install gets: the system's appearance, and recording from launch.
+DEFAULT_SETTINGS = {"theme": "system", "record_on_launch": True}
+
+
 class ShellWorker(BaseUIWorker):
     """The one crossing between the workers and the menu bar.
 
@@ -274,9 +278,10 @@ class ShellWorker(BaseUIWorker):
 
     def _settings(self) -> dict:
         try:
-            return json.loads(self._settings_path().read_text())
+            saved = json.loads(self._settings_path().read_text())
         except (OSError, ValueError):
-            return {}
+            saved = {}
+        return {**DEFAULT_SETTINGS, **saved}
 
     def settings(self) -> dict:
         return self._settings()
