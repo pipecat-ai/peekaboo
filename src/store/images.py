@@ -35,6 +35,27 @@ def changed_fraction(a: bytes, b: bytes, *, min_delta: int = 24) -> float:
     return changed / len(a)
 
 
+def changed_box(a: bytes, b: bytes, size: tuple[int, int], *, min_delta: int = 24, pad: int = 24):
+    """The box in image pixels around every signature pixel that differs
+    between two signatures of the same frame size, or None if nothing does."""
+    w, h = SIGNATURE_SIZE
+    if len(a) != len(b) or len(a) != w * h:
+        return None
+    xs, ys = [], []
+    for i, (x, y) in enumerate(zip(a, b)):
+        if abs(x - y) > min_delta:
+            xs.append(i % w)
+            ys.append(i // w)
+    if not xs:
+        return None
+    sx, sy = size[0] / w, size[1] / h
+    left = max(0, int(min(xs) * sx) - pad)
+    top = max(0, int(min(ys) * sy) - pad)
+    right = min(size[0], int((max(xs) + 1) * sx) + pad)
+    bottom = min(size[1], int((max(ys) + 1) * sy) + pad)
+    return (left, top, right, bottom)
+
+
 def frame_key(sig: bytes) -> str:
     """Identity of a frame for deduplication: quantized so noise doesn't count."""
     quantized = bytes(v >> 4 for v in sig)

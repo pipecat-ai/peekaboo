@@ -247,3 +247,19 @@ def test_prune_drops_still_images_sooner_than_window_frames(tmp_path):
             await store.close()
 
     asyncio.run(go())
+
+
+def test_changed_box_finds_where_two_frames_differ():
+    from PIL import Image, ImageDraw
+
+    from store.images import changed_box, signature
+
+    a = Image.new("RGB", (1080, 675), "white")
+    b = a.copy()
+    ImageDraw.Draw(b).rectangle((100, 500, 300, 560), fill="black")
+    box = changed_box(signature(b), signature(a), a.size)
+    assert box is not None
+    left, top, right, bottom = box
+    assert left <= 100 <= 300 <= right and top <= 500 <= 560 <= bottom
+    assert right - left < 400 and bottom - top < 200
+    assert changed_box(signature(a), signature(a), a.size) is None

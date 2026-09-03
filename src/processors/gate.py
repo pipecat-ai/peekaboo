@@ -9,12 +9,14 @@ from pipecat.frames.frames import Frame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from processors.frames import ScreenFrame
-from store.images import changed_fraction, frame_key, signature
+from store.images import changed_box, changed_fraction, frame_key, signature
 
 # Fraction of the signature that has to move for a frame to count as changed.
 # 0.2% of a 128x80 signature is about twenty pixels: a line of text, not a
 # cursor.
 CHANGED_THRESHOLD = 0.002
+# A change touching less of the frame than this is local: worth pointing at.
+LOCAL_CHANGE_MAX_FRACTION = 0.35
 
 
 class ChangeGate(FrameProcessor):
@@ -57,6 +59,8 @@ class ChangeGate(FrameProcessor):
             fraction = changed_fraction(sig, last)
             frame.changed = fraction >= self._changed_threshold
             logger.trace(f"{self}: {frame.target} changed {fraction:.4f} -> {frame.changed}")
+            if frame.changed and fraction < LOCAL_CHANGE_MAX_FRACTION:
+                frame.changed_box = changed_box(sig, last, frame.image.size)
 
         if frame.changed:
             self._last[frame.target] = sig

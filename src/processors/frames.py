@@ -37,6 +37,9 @@ class ScreenFrame(SystemFrame):
     """Identity of the frame for storage: same key, same picture."""
     changed: bool = True
     """Whether the frame differs from the last one analyzed for this target."""
+    changed_box: Optional[tuple[int, int, int, int]] = None
+    """Where it differs, as a box in image pixels (left, top, right, bottom),
+    when the change is local; None when most of the frame moved."""
     app: Optional[str] = None
     """For a window, its app; for the screen, the frontmost app (the focus)."""
     title: Optional[str] = None

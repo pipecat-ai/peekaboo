@@ -33,6 +33,10 @@ MIN_ANALYSIS_INTERVAL_SECS = 15.0
 SCREEN_ANALYSIS_INTERVAL_SECS = 30.0
 # A banner is short-lived: read it as soon as it appears.
 BANNER_ANALYSIS_INTERVAL_SECS = 3.0
+# The changed region is sent enlarged when it is a small part of the frame.
+CROP_MAX_FRACTION = 0.4
+CROP_MAX_WIDTH = 1200
+CROP_MAX_SCALE = 3.0
 
 
 @dataclass(frozen=True)
@@ -152,6 +156,24 @@ class VisionImageProcessor(FrameProcessor):
     @property
     def watchlist(self) -> List[WatchItem]:
         return list(self._watchlist.values())
+
+    @staticmethod
+    def _changed_crop(frame: ScreenFrame) -> Optional[Image.Image]:
+        """The part of the frame that changed, cut out and enlarged so small
+        things (a name turning bold, a badge, one new line) are legible."""
+        box = frame.changed_box
+        if not box:
+            return None
+        left, top, right, bottom = box
+        w, h = right - left, bottom - top
+        if w < 8 or h < 8 or w * h > CROP_MAX_FRACTION * frame.image.size[0] * frame.image.size[1]:
+            return None
+        crop = frame.image.crop(box)
+        scale = min(CROP_MAX_WIDTH / max(1, w), CROP_MAX_SCALE)
+        if scale > 1.0:
+            crop = crop.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+        logger.debug(f"changed region of {frame.target}: {w}x{h} at ({left},{top}), sent at {crop.size}")
+        return crop
 
     def remember(self, target: str, content: str):
         """Keep a target's latest description for the next analysis."""
@@ -278,12 +300,20 @@ class VisionImageProcessor(FrameProcessor):
         if previous:
             query["previous"] = previous
 
+        crop = self._changed_crop(frame)
+        if crop is not None:
+            query["changed_region"] = "the second image is the part of the window that changed since the previous frame, enlarged"
         message = await LLMContext.create_image_message(
             image=frame.image.tobytes(),
             size=frame.image.size,
             format="RGB",
             text=json.dumps(query),
         )
+        if crop is not None:
+            extra = await LLMContext.create_image_message(
+                image=crop.tobytes(), size=crop.size, format="RGB", text="The changed region, enlarged."
+            )
+            message["content"] = list(message["content"]) + list(extra["content"])
 
         self._last_sent = SentFrame(
             target=frame.target,

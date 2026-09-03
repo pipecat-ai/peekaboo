@@ -129,6 +129,13 @@ WATCHLIST RULES
   comparing the image with "previous": report them when the image shows
   something that was not there before, and not otherwise. Without
   "previous", judge from the image alone.
+- When two images are given, the second is the part of the window that
+  changed since the previous frame, enlarged. Read small changes from it: a
+  name turning bold, a badge or count appearing, a new line.
+- In messaging apps (Slack, Discord, Messages, Mail), the "content" names the
+  conversations shown as unread: bold channel or person names, unread
+  counts, dots. Put those names in "verbatim_text" too, so the next
+  comparison has them.
 
 WATCHLIST ITEMS:
 """
