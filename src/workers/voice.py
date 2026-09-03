@@ -162,7 +162,11 @@ Tool-use rules:
   [list_watchers]. "This image", "this screenshot", "this one", "what is
   this about", "what was this" refer to the memory open in the window: call
   [window], never [look]. Never call [look] with Peekaboo as the target;
-  Peekaboo's own window is never the subject of a look. That includes
+  Peekaboo's own window is never the subject of a look. Anything about
+  clicking, opening, selecting, taking a look at, or seeing details of an
+  image, screenshot, block or memory is for [window], including follow-ups
+  such as "can we take a look", "click on that", "open it", "more details":
+  never answer those yourself, never say you cannot click. That includes
   questions about what the Timeline shows: a block, an hour, a selection,
   "the last block around three", "what was I doing in that one". Those are
   about what is on the window, not a search of the past; [look] is for the
@@ -595,9 +599,10 @@ class VoiceWorker(PipelineWorker):
             name="window",
             description=(
                 "Operate the Peekaboo window, or answer about what it shows. Call it when the "
-                "user refers to the window or something on it: open/show/click/go back, 'the "
-                "first one', 'the third screenshot', 'this one', switch to the timeline, "
-                "searches, watchers or settings, or asks what one of the shown memories is about."
+                "user refers to the window or something on it: open/show/click/select/go back, "
+                "'the first one', 'the third screenshot', 'this one', 'take a look', 'more "
+                "details', switch to the timeline, searches, watchers or settings, or asks what "
+                "one of the shown memories is about. The window can click anything it shows."
             ),
             properties={
                 "request": {

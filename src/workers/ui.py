@@ -63,9 +63,11 @@ memories in the strip, and a "Timeline" back button at the top left leaves
 the zoom), a "Selected …" line, and a strip of the
 selected memories (buttons named "<app> at <time>: <what was on screen>",
 the selected one tagged [selected]). Clicking a day, an hour, a block, or a
-strip memory does what a mouse click does; clicking the strip memory that is
-already selected opens it in the Viewer, so "the third one" selects it and
-"open it" clicks it again. The timeline fields of [reply] do the rest:
+strip memory does what a mouse click does. A click on a strip memory selects
+it, and the selected one shows an "Open … in the Viewer" button: to open a
+strip memory, [select] it, then [reply] with `click` on that Open button.
+"Take a look at the third one", "open it", "click on that", "more details"
+all mean open it in the Viewer. The timeline fields of [reply] do the rest:
 `timeline_day` for a day ("last Tuesday", "yesterday", "the 14th": work out
 the date from the current time given with the request), `timeline_hour` to
 zoom into an hour, `timeline_from` and `timeline_to` to select a span of the
@@ -99,7 +101,8 @@ Never answer in plain text. Finish every request with exactly one call to
   markup. For an action, a few words ("Opening the terminal one."). If the
   request does not match anything on the window, say so in one sentence.
   Times in the state are for reading, not repeating: say them the way a
-  person would ("ten past three in the afternoon"), never with seconds.
+  person would ("ten past three in the afternoon", "from nine oh seven to
+  nine twelve"), never with seconds and never as digits with dashes.
 """
 
 
@@ -151,7 +154,7 @@ class PeekabooUIWorker(UIWorker):
     async def reply(
         self,
         params: FunctionCallParams,
-        answer: str,
+        answer: Optional[str] = None,
         click: Optional[str] = None,
         navigate: Optional[str] = None,
         highlight: Optional[list[str]] = None,
@@ -164,7 +167,7 @@ class PeekabooUIWorker(UIWorker):
         """Reply to the user and act on the window. Called exactly once per request.
 
         Args:
-            answer: What to say, spoken aloud as is. One short sentence.
+            answer: What to say, spoken aloud as is. One short sentence; may be left out for a silent action.
             click: Ref of an element to click, such as a memory card to open it or the Back button.
             navigate: Screen to switch to: ask, searches, timeline, watchers, or settings.
             highlight: Refs of elements to flash briefly, to point at them.
@@ -192,7 +195,8 @@ class PeekabooUIWorker(UIWorker):
             await self.highlight(ref)
         if click:
             await self.click(click)
-        await self.respond_to_job(answer, tts_speak=True)
+        # No answer given: the action speaks for itself; the request completes quietly.
+        await self.respond_to_job(answer or None, tts_speak=True)
         await params.result_callback(None)
 
     async def _on_plain_answer(self, aggregator, message):

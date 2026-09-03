@@ -197,7 +197,8 @@
   .tlstrip { display: flex; gap: 8px; padding: 16px 0 0; overflow-x: auto; }
   .tlstrip .frame { flex-shrink: 0; width: 132px; display: flex; flex-direction: column; gap: 4px; }
   .tlstrip .frame .img { aspect-ratio: 16 / 10; border-radius: 6px; border: 1px solid var(--line); overflow: hidden; background: var(--chip); }
-  .tlstrip .frame.on .img { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .tlstrip .frame.on .img { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); position: relative; }
+  .tlstrip .openbtn { position: absolute; right: 6px; bottom: 6px; height: 22px; padding: 0 9px; border-radius: 6px; border: 0; background: var(--accent); color: #fff; font: 500 11px -apple-system, sans-serif; }
   .tlstrip .frame .img img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .tlstrip .frame .t { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-2); min-width: 0; }
   .tlstrip .frame .t b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1031,11 +1032,14 @@ function renderStrip() {
   strip.setAttribute("aria-label", stripItems.length > STRIP_A11Y_MAX ? `Selected memories, first ${STRIP_A11Y_MAX} of ${stripItems.length}` : "Selected memories");
   stripItems.forEach((o, index) => {
     const f = document.createElement("div"); f.className = "frame" + (tlSelected && o.id === tlSelected.id ? " on" : "");
-    f.innerHTML = `<div class="img">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
+    const on = tlSelected && o.id === tlSelected.id;
+    f.innerHTML = `<div class="img">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}${on ? `<button class="openbtn" role="button" aria-label="Open ${esc(o.app || "Screen")} at ${hhmmss(o.ts)} in the Viewer">Open</button>` : ""}</div>
       <div class="t">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b></div><div class="when">${hhmmss(o.ts)}</div>`;
     f.title = o.title || "";
     f.setAttribute("role", "button"); f.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmmss(o.ts)}: ${brief(o.title ? `${o.title}. ${o.content}` : o.content, 120)}`); f.setAttribute("aria-selected", tlSelected && o.id === tlSelected.id ? "true" : "false");
-    for (const c of f.children) c.setAttribute("data-a11y-exclude", "");
+    for (const c of f.children) if (!c.querySelector(".openbtn")) c.setAttribute("data-a11y-exclude", "");
+    const openBtn = f.querySelector(".openbtn");
+    if (openBtn) { openBtn.onclick = (e) => { e.stopPropagation(); openStrip(); }; for (const c of f.querySelector(".img").children) if (c !== openBtn) c.setAttribute("data-a11y-exclude", ""); }
     if (index >= STRIP_A11Y_MAX && !(tlSelected && tlSelected.id === o.id)) f.setAttribute("data-a11y-exclude", "");
     f.onclick = () => { if (tlSelected && tlSelected.id === o.id) { openStrip(); return; } tlSelected = o; renderStrip(); };
     f.ondblclick = () => openStrip();
