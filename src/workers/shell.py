@@ -46,7 +46,7 @@ RECENT_ITEMS = 10
 
 
 # What a fresh install gets: the system's appearance, and recording from launch.
-DEFAULT_SETTINGS = {"theme": "system", "record_on_launch": True, "echo_cancellation": True}
+DEFAULT_SETTINGS = {"theme": "system", "record_on_launch": True, "echo_cancellation": True, "input_device": ""}
 
 
 def load_settings(root: Path) -> dict:
@@ -352,6 +352,12 @@ class ShellWorker(BaseUIWorker):
 
     async def _rpc_settings(self):
         return self._settings()
+
+    async def _rpc_input_devices(self):
+        """The microphones present now, for the Settings picker."""
+        from macos.audio_devices import input_devices
+
+        return {"devices": [d.describe() for d in await asyncio.to_thread(input_devices)]}
 
     async def _rpc_set_setting(self, key: str, value):
         settings = self._settings()

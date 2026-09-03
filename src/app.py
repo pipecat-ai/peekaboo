@@ -134,6 +134,7 @@ class App:
                 audio_in_enabled=True,
                 audio_out_enabled=True,
                 voice_processing=not self.args.no_voice_processing and bool(settings.get("echo_cancellation", True)),
+                input_device=str(settings.get("input_device") or ""),
             )
         )
         if self.memories:
@@ -151,6 +152,8 @@ class App:
         def on_setting(key: str, value):
             if key == "echo_cancellation" and not self.args.no_voice_processing:
                 transport.set_voice_processing(bool(value))
+            elif key == "input_device":
+                transport.set_input_device(str(value or ""))
 
         self.shell = ShellWorker(
             menubar=self.menubar,

@@ -271,6 +271,7 @@
   .seg { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; font-size: 12px; }
   .seg span { padding: 4px 12px; } .seg span.on { background: var(--accent); color: #fff; font-weight: 500; }
   .check { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; flex-shrink: 0; }
+  .select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--text); max-width: 260px; }
 </style>
 </head>
 <body>
@@ -426,6 +427,10 @@
         <input type="checkbox" id="recordlaunch" class="check" checked aria-label="Start recording when Peekaboo launches">
       </div>
       <div class="setting">
+        <div><div class="label">Microphone</div><div class="help">Which microphone Peekaboo listens through. Peekaboo keeps it open to hear its name, and an open Bluetooth headset mic drops the headset to its low-quality mode; pick the built-in microphone to keep headphones sounding right.</div></div>
+        <select id="micsel" class="select" aria-label="Microphone"><option value="">System default</option></select>
+      </div>
+      <div class="setting">
         <div><div class="label">Echo cancellation</div><div class="help">Lets Peekaboo hear you while it speaks. Turn it off to record your screen with another app: with it on, macOS muffles the microphone for everyone else. Off, wear headphones so Peekaboo doesn't hear itself.</div></div>
         <input type="checkbox" id="echocancel" class="check" checked aria-label="Echo cancellation">
       </div>
@@ -532,6 +537,8 @@ let pickerSel = null;    // {app, title} chosen in the new-watcher panel
 let playing = null;
 
 function show(name) {
+  // The microphone list is read from the OS each time Settings is shown.
+  try { if (name === "settings" && settings) loadMicrophones(); } catch (e) { /* before settings load */ }
   if (name === "searches") loadSearches();
   if (name !== "viewer") lastScreen = name;
   screen = name;
@@ -1172,6 +1179,19 @@ function applyTheme(theme) {
 async function setTheme(theme) { applyTheme(theme); settings.theme = theme; await call("set_setting", { key: "theme", value: theme }); }
 document.querySelectorAll("#themeseg span").forEach((el) => (el.onclick = () => setTheme(el.dataset.v)));
 function applyRecordSetting() { $("#recordlaunch").checked = settings.record_on_launch !== false; $("#echocancel").checked = settings.echo_cancellation !== false; }
+async function loadMicrophones() {
+  const sel = $("#micsel");
+  let devices = [];
+  try { devices = (await call("input_devices", {})).devices || []; } catch (e) { plog("input_devices: " + e); }
+  const chosen = settings.input_device || "";
+  sel.innerHTML = `<option value="">System default</option>` + devices.map((d) => `<option value="${esc(d.uid)}">${esc(d.name)}${d.transport ? ` (${esc(d.transport)})` : ""}</option>`).join("")
+    + (chosen && !devices.some((d) => d.uid === chosen) ? `<option value="${esc(chosen)}">${esc(chosen)} (not connected)</option>` : "");
+  sel.value = chosen;
+}
+$("#micsel").onchange = async (e) => {
+  settings.input_device = e.target.value;
+  await call("set_setting", { key: "input_device", value: settings.input_device });
+};
 $("#echocancel").onchange = async (e) => {
   settings.echo_cancellation = e.target.checked;
   await call("set_setting", { key: "echo_cancellation", value: settings.echo_cancellation });
@@ -1180,7 +1200,7 @@ $("#recordlaunch").onchange = async (e) => {
   settings.record_on_launch = e.target.checked;
   await call("set_setting", { key: "record_on_launch", value: settings.record_on_launch });
 };
-async function loadSettings() { settings = await call("settings", {}); applyTheme(settings.theme || "system"); applyRecordSetting(); }
+async function loadSettings() { settings = await call("settings", {}); applyTheme(settings.theme || "system"); applyRecordSetting(); await loadMicrophones(); }
 
 // ---- status footer ----------------------------------------------------
 let lastToday = null;

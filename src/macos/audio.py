@@ -51,6 +51,8 @@ from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 
+from macos.audio_devices import InputDevice, input_device_id, input_devices, pin_input_unit
+
 # How far ahead of the play head output is scheduled before the writer waits.
 # Small keeps interruptions snappy; large survives a busy event loop.
 OUTPUT_LEAD_SECS = 0.12
@@ -68,9 +70,13 @@ class MacAudioTransportParams(TransportParams):
     Parameters:
         voice_processing: Enable the OS echo canceller, gain control, and
             noise suppression. Off only for measurement.
+        input_device: UID of the microphone to use (see
+            :func:`macos.audio_devices.input_devices`); "" follows the
+            system default.
     """
 
     voice_processing: bool = True
+    input_device: str = ""
 
 
 class _Engine:
@@ -81,8 +87,9 @@ class _Engine:
     device), which stops the engine and may change the hardware rate.
     """
 
-    def __init__(self, *, voice_processing: bool):
+    def __init__(self, *, voice_processing: bool, input_device: str = ""):
         self._voice_processing = voice_processing
+        self._input_device = input_device
         self._engine = AVF.AVAudioEngine.alloc().init()
         self._player = None
         self._out_format = None
@@ -124,6 +131,26 @@ class _Engine:
             f"audio engine running: input {self._in_rate} Hz, output {self._out_rate} Hz, "
             f"voice processing {'on' if self._engine.inputNode().isVoiceProcessingEnabled() else 'off'}"
         )
+
+    def set_input_device(self, uid: str):
+        """Switch microphones while running: "" for the system default.
+
+        The input unit's device can only be set before the engine starts,
+        and there is no unsetting it, so the engine is built again from
+        scratch either way.
+        """
+        if uid == self._input_device:
+            return
+        self._input_device = uid
+        if not self._built:
+            return
+        was_running = self._running
+        self.stop()
+        self._engine = AVF.AVAudioEngine.alloc().init()
+        self._built = False
+        self._build()
+        if was_running:
+            self.start()
 
     def set_voice_processing(self, enabled: bool):
         """Turn the OS voice processing on or off while running.
@@ -168,10 +195,22 @@ class _Engine:
         self._engine.inputNode().removeTapOnBus_(0)
         self._engine.stop()
         self._running = False
+        self._running = False
 
     def _build(self):
         engine = self._engine
         input_node = engine.inputNode()
+
+        # 0. A chosen microphone: pinned on the input unit before anything
+        # else touches it. Otherwise the node follows the system default.
+        if self._input_device:
+            device_id = input_device_id(self._input_device)
+            if device_id is None:
+                logger.warning(f"input device {self._input_device!r} is not present; using the system default")
+            elif not pin_input_unit(input_node.audioUnit(), device_id):
+                logger.warning(f"could not select input device {self._input_device!r}; using the system default")
+            else:
+                logger.info(f"microphone: {self._input_device!r}")
 
         # 1. The output graph: a player of int16 mono at the pipeline's rate.
         self._player = AVF.AVAudioPlayerNode.alloc().init()
@@ -417,7 +456,7 @@ class MacAudioTransport(BaseTransport):
     ):
         super().__init__()
         self._params = params or MacAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True)
-        self._engine = _Engine(voice_processing=self._params.voice_processing)
+        self._engine = _Engine(voice_processing=self._params.voice_processing, input_device=self._params.input_device)
         self._send_to_client = send_to_client
         self._input: Optional[MacAudioInputTransport] = None
         self._output: Optional[MacAudioOutputTransport] = None
@@ -439,6 +478,15 @@ class MacAudioTransport(BaseTransport):
     def set_voice_processing(self, enabled: bool):
         """Turn the OS echo canceller on or off, live."""
         self._engine.set_voice_processing(enabled)
+
+    def set_input_device(self, uid: str):
+        """Use another microphone, live; "" follows the system default."""
+        self._engine.set_input_device(uid)
+
+    @staticmethod
+    def input_devices() -> list[InputDevice]:
+        """The microphones present right now."""
+        return input_devices()
 
     def _deliver(self, message: dict):
         if self._send_to_client:

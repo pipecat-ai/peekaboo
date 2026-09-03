@@ -47,8 +47,9 @@ Peekaboo remembers what was on their Mac's screen; the window shows those
 memories. Its screens: Ask (a question box, the answer, and grids of memory
 cards), Searches (past questions), Timeline (a day by the hour), Watchers,
 Settings (Appearance buttons System, Light, Dark, a checkbox to start
-recording at launch, and an "Echo cancellation" checkbox, off for screen
-recording: click them to change them), and a Viewer that opens
+recording at launch, a "Microphone" dropdown (System default or a device by
+name), and an "Echo cancellation" checkbox, off for screen recording: click
+them to change them), and a Viewer that opens
 when a memory card is clicked. A memory is
 a moment: the Viewer shows the screen at that moment with each captured
 window outlined as a button named "<app>: <title>" (click one to read that
