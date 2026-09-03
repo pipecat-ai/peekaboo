@@ -49,7 +49,7 @@ from store.sqlite_store import SQLiteStore
 from workers.history import HistoryWorker
 from workers.screen import ScreenWorker
 from workers.names import UI_WORKER
-from workers.shell import ShellWorker
+from workers.shell import ShellWorker, load_settings
 from workers.ui import PeekabooUIWorker
 from workers.vision import VisionWorker
 from workers.voice import VoiceWorker
@@ -125,11 +125,15 @@ class App:
         registry = WindowRegistry()
         await registry.start()
 
+        # Echo cancellation is a setting (off for screen recording: the OS
+        # voice processing muffles other apps' microphone capture); the flag
+        # forces it off for measurement.
+        settings = load_settings(store.root)
         transport = MacAudioTransport(
             MacAudioTransportParams(
                 audio_in_enabled=True,
                 audio_out_enabled=True,
-                voice_processing=not self.args.no_voice_processing,
+                voice_processing=not self.args.no_voice_processing and bool(settings.get("echo_cancellation", True)),
             )
         )
         if self.memories:
@@ -144,8 +148,17 @@ class App:
         # voice pipeline carries audio only. Signals are AppKit's business on
         # the main thread, so the runner leaves SIGINT alone.
         self.runner = WorkerRunner(handle_sigint=False)
+        def on_setting(key: str, value):
+            if key == "echo_cancellation" and not self.args.no_voice_processing:
+                transport.set_voice_processing(bool(value))
+
         self.shell = ShellWorker(
-            menubar=self.menubar, store=store, memories=self.memories, registry=registry, on_listen=lambda on: voice.set_listening(on)
+            menubar=self.menubar,
+            store=store,
+            memories=self.memories,
+            registry=registry,
+            on_listen=lambda on: voice.set_listening(on),
+            on_setting=on_setting,
         )
         if self.memories:
             self.memories.on_closed = self.shell.page_closed

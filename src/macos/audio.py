@@ -125,6 +125,40 @@ class _Engine:
             f"voice processing {'on' if self._engine.inputNode().isVoiceProcessingEnabled() else 'off'}"
         )
 
+    def set_voice_processing(self, enabled: bool):
+        """Turn the OS voice processing on or off while running.
+
+        Voice-processing I/O is system-wide: while any process has it on,
+        other apps capturing the same microphone get the ducked, processed
+        path (a screen recorder's voice track comes out muffled or silent).
+        Off, Peekaboo may hear itself through the speakers; headphones
+        avoid that. The engine has to be stopped to change the mode, and the
+        tap is reinstalled since the input format may change with it.
+        """
+        if enabled == self._voice_processing:
+            return
+        self._voice_processing = enabled
+        if not self._built:
+            return
+        was_running = self._running
+        self._running = False
+        input_node = self._engine.inputNode()
+        input_node.removeTapOnBus_(0)
+        self._engine.stop()
+        ok, error = input_node.setVoiceProcessingEnabled_error_(enabled, None)
+        if not ok:
+            logger.warning(f"voice processing could not be {'enabled' if enabled else 'disabled'}: {error}")
+        self._install_tap()
+        if was_running:
+            self._engine.prepare()
+            ok, error = self._engine.startAndReturnError_(None)
+            if not ok:
+                logger.error(f"audio engine did not restart after changing voice processing: {error}")
+                return
+            self._player.play()
+            self._running = True
+        logger.info(f"voice processing {'on' if input_node.isVoiceProcessingEnabled() else 'off'}; input {self._in_rate} Hz")
+
     def stop(self):
         if not self._built:
             return
@@ -401,6 +435,10 @@ class MacAudioTransport(BaseTransport):
     def set_muted(self, muted: bool):
         """Mute or unmute the microphone."""
         self.input().set_muted(muted)  # type: ignore[attr-defined]
+
+    def set_voice_processing(self, enabled: bool):
+        """Turn the OS echo canceller on or off, live."""
+        self._engine.set_voice_processing(enabled)
 
     def _deliver(self, message: dict):
         if self._send_to_client:

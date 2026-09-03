@@ -6,7 +6,9 @@
 
 import asyncio
 import base64
+import inspect
 import json
+from pathlib import Path
 import os
 from collections import Counter
 import time
@@ -44,7 +46,16 @@ RECENT_ITEMS = 10
 
 
 # What a fresh install gets: the system's appearance, and recording from launch.
-DEFAULT_SETTINGS = {"theme": "system", "record_on_launch": True}
+DEFAULT_SETTINGS = {"theme": "system", "record_on_launch": True, "echo_cancellation": True}
+
+
+def load_settings(root: Path) -> dict:
+    """The saved settings under ``root`` over the defaults."""
+    try:
+        saved = json.loads((root / "settings.json").read_text())
+    except (OSError, ValueError):
+        saved = {}
+    return {**DEFAULT_SETTINGS, **saved}
 
 
 class ShellWorker(BaseUIWorker):
@@ -73,9 +84,13 @@ class ShellWorker(BaseUIWorker):
         history_worker: str = HISTORY_WORKER,
         voice_worker: str = VOICE_WORKER,
         on_listen: Optional[Callable[[bool], Awaitable[None]]] = None,
+        on_setting: Optional[Callable[[str, Any], Any]] = None,
         **kwargs,
     ):
         super().__init__(name=SHELL_WORKER, **kwargs)
+        # Told of every setting change, for the ones that act on the app
+        # (echo cancellation reaches the transport).
+        self._on_setting = on_setting
         self._menubar = menubar
         self._store = store
         self._memories = memories
@@ -325,11 +340,7 @@ class ShellWorker(BaseUIWorker):
         return self._store.root / "settings.json"
 
     def _settings(self) -> dict:
-        try:
-            saved = json.loads(self._settings_path().read_text())
-        except (OSError, ValueError):
-            saved = {}
-        return {**DEFAULT_SETTINGS, **saved}
+        return load_settings(self._store.root)
 
     def settings(self) -> dict:
         return self._settings()
@@ -348,6 +359,10 @@ class ShellWorker(BaseUIWorker):
         self._settings_path().write_text(json.dumps(settings, indent=2))
         if key == "theme" and self._memories:
             self._memories.set_theme(str(value))
+        if self._on_setting:
+            result = self._on_setting(str(key), value)
+            if inspect.isawaitable(result):
+                await result
         return settings
 
     async def _rpc_stats(self):

@@ -425,6 +425,10 @@
         <div><div class="label">Start recording when Peekaboo launches</div><div class="help">Otherwise recording waits for the menu, the button below, or "start recording" aloud.</div></div>
         <input type="checkbox" id="recordlaunch" class="check" checked aria-label="Start recording when Peekaboo launches">
       </div>
+      <div class="setting">
+        <div><div class="label">Echo cancellation</div><div class="help">Lets Peekaboo hear you while it speaks. Turn it off to record your screen with another app: with it on, macOS muffles the microphone for everyone else. Off, wear headphones so Peekaboo doesn't hear itself.</div></div>
+        <input type="checkbox" id="echocancel" class="check" checked aria-label="Echo cancellation">
+      </div>
       <div class="empty">Exclusions, retention, and model tiers arrive with M6.</div>
     </div>
   </section>
@@ -1167,7 +1171,11 @@ function applyTheme(theme) {
 }
 async function setTheme(theme) { applyTheme(theme); settings.theme = theme; await call("set_setting", { key: "theme", value: theme }); }
 document.querySelectorAll("#themeseg span").forEach((el) => (el.onclick = () => setTheme(el.dataset.v)));
-function applyRecordSetting() { $("#recordlaunch").checked = settings.record_on_launch !== false; }
+function applyRecordSetting() { $("#recordlaunch").checked = settings.record_on_launch !== false; $("#echocancel").checked = settings.echo_cancellation !== false; }
+$("#echocancel").onchange = async (e) => {
+  settings.echo_cancellation = e.target.checked;
+  await call("set_setting", { key: "echo_cancellation", value: settings.echo_cancellation });
+};
 $("#recordlaunch").onchange = async (e) => {
   settings.record_on_launch = e.target.checked;
   await call("set_setting", { key: "record_on_launch", value: settings.record_on_launch });
