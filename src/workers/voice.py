@@ -360,6 +360,7 @@ class VoiceWorker(PipelineWorker):
         on_asked: Optional[Callable[[str], None]] = None,
         on_show_ask: Optional[Callable[[int], None]] = None,
         on_show_screen: Optional[Callable[[str], None]] = None,
+        on_open_window: Optional[Callable[[], None]] = None,
         store: Optional["SQLiteStore"] = None,
         on_answer: Optional[Callable[[str, str, list[int]], Awaitable[None]]] = None,
         on_recording: Optional[Callable[[bool], Awaitable[None]]] = None,
@@ -380,6 +381,7 @@ class VoiceWorker(PipelineWorker):
         self._on_asked = on_asked
         self._on_show_ask = on_show_ask
         self._on_show_screen = on_show_screen
+        self._on_open_window = on_open_window
         self._store = store
         self._on_answer = on_answer
         self._on_recording = on_recording
@@ -880,6 +882,9 @@ class VoiceWorker(PipelineWorker):
     async def _window(self, params: FunctionCallParams):
         # The ui worker sees the window's accessibility snapshot, acts on the
         # page, and speaks its own short reply through this pipeline's TTS.
+        # Asking the window for something means wanting to see it.
+        if self._on_open_window:
+            self._on_open_window()
         request = str(params.arguments.get("request") or "")
         await self.request_job(self._ui_worker, params=JobParams(name="respond", payload={"query": request}))
         await params.result_callback(

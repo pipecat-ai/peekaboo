@@ -178,13 +178,15 @@ class ShellWorker(BaseUIWorker):
             self._memories.open(ids)
 
     def show_ask(self, ask_id: int):
-        """Show a past search on the Ask screen, as when clicked in Searches.
-        Any thread; the window is not opened for it."""
+        """Open the window if it is closed and show a past search on the Ask
+        screen, as when clicked in Searches. Any thread."""
+        self.open_memories()
         self._push("show_ask", {"id": int(ask_id)})
 
     def show_screen(self, name: str):
-        """Switch the window to a screen (ask, searches, timeline, watchers,
-        settings). Any thread; the window is not opened for it."""
+        """Open the window if it is closed and switch it to a screen (ask,
+        searches, timeline, watchers, settings). Any thread."""
+        self.open_memories()
         self._push("navigate", {"view": str(name)})
 
     def show_asked(self, question: str):

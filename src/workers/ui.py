@@ -16,6 +16,7 @@ voice worker's TTS.
 
 import asyncio
 import os
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -34,6 +35,9 @@ UI_MODEL = "claude-haiku-4-5"
 UI_MAX_TOKENS = 400
 # A request to the window agent is closed for it after this long.
 UI_TURN_TIMEOUT_SECS = 12.0
+# A snapshot older than this is not trusted for a new request; wait this long for a fresh one.
+FRESH_SNAPSHOT_SECS = 2.0
+SNAPSHOT_WAIT_SECS = 2.5
 
 SCREENS = ("ask", "searches", "timeline", "watchers", "settings")
 
@@ -125,6 +129,7 @@ class PeekabooUIWorker(UIWorker):
         )
         super().__init__(name, llm=llm)
         self._snapshots = 0
+        self._last_snapshot_at = 0.0
 
         # A turn that ends in plain text, with no tool called, is the answer:
         # spoken as the reply, so the request completes instead of hanging.
@@ -224,6 +229,14 @@ class PeekabooUIWorker(UIWorker):
         that ends in plain text, or a model that goes quiet after ``select``,
         would leave the job open and every later request queued behind it.
         After a while the job is answered for it."""
+        # The window may have just been opened for this request: give the
+        # page a moment to send a fresh snapshot before the agent looks.
+        if time.monotonic() - self._last_snapshot_at > FRESH_SNAPSHOT_SECS:
+            before = self._snapshots
+            for _ in range(int(SNAPSHOT_WAIT_SECS / 0.1)):
+                await asyncio.sleep(0.1)
+                if self._snapshots != before:
+                    break
         turn = asyncio.ensure_future(super()._run_llm_turn(message))
         try:
             await asyncio.wait_for(asyncio.shield(turn), timeout=UI_TURN_TIMEOUT_SECS)
@@ -243,6 +256,7 @@ class PeekabooUIWorker(UIWorker):
         await super().on_bus_message(message)
         if isinstance(message, BusUIEventMessage) and message.event_name == _UI_SNAPSHOT_BUS_EVENT_NAME:
             self._snapshots += 1
+            self._last_snapshot_at = time.monotonic()
             state = self.render_ui_state()
             logger.debug(f"{self}: snapshot, {state.count(chr(10)) + 1} lines, ~{len(state) // 4} tokens")
             logger.trace(f"{self}: {state}")
