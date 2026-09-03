@@ -71,8 +71,6 @@ def _icon_with_dot(kind: Optional[str]) -> AppKit.NSImage:
 class _Target(NSObject):
     """Receives menu actions. Selectors only; the logic lives in MenuBar."""
 
-    def frameTick_(self, timer):
-        self._menubar._frame_tick()
 
     def initWithMenuBar_(self, menubar):
         self = objc.super(_Target, self).init()
@@ -154,27 +152,7 @@ class MenuBar:
         self._item.setMenu_(self._menu)
         self._item.setVisible_(True)
         self._apply_state()
-        logger.info(f"menu bar item installed: visible={bool(self._item.isVisible())}")
-        # Where the item's window sits, logged whenever it moves for the first
-        # minute: under LaunchServices it has been seen parked at the origin.
-        self._frame_log = {"last": None, "ticks": 0}
-        self._frame_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            1.0, self._target, "frameTick:", None, True
-        )
-
-    def _frame_tick(self):
-        if self._item is None:
-            return
-        window = self._item.button().window()
-        frame = window.frame() if window is not None else None
-        now = (round(frame.origin.x), round(frame.origin.y)) if frame is not None else None
-        self._frame_log["ticks"] += 1
-        if now != self._frame_log["last"]:
-            logger.info(f"menu bar item window at {now}")
-            self._frame_log["last"] = now
-        if self._frame_log["ticks"] >= 60 and self._frame_timer is not None:
-            self._frame_timer.invalidate()
-            self._frame_timer = None
+        logger.debug("menu bar item installed")
 
     def _apply_state(self):
         if self._item is None:
