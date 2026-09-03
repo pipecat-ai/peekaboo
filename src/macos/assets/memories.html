@@ -663,7 +663,6 @@ async function loadDay() {
     track.onmouseleave = () => {
       $("#tip").hidden = true;
       track.querySelectorAll(".marker.hover, .marker-label.hover").forEach((m) => m.remove());
-      if (tlSelected) renderStrip(); else $("#preview").hidden = true;
     };
     rows.appendChild(el);
   }
@@ -850,8 +849,9 @@ function blocksOf(row) {
   return blocks;
 }
 
-// Moving along a track scrubs: the preview follows the frame nearest the
-// mouse within that hour, like a video scrubber. A click pins.
+// Moving along a track shows a marker at the frame nearest the mouse within
+// that hour, with its time; the block popup names the block. Nothing else
+// appears until a click or a voice command selects something.
 function hover(row, e) {
   if (hoverRaf) return;
   const track = e.currentTarget, clientX = e.clientX;
@@ -864,7 +864,6 @@ function hover(row, e) {
     if (!o) return;
     const x = ((o.ts - row.start) / 3600) * 100;
     track.insertAdjacentHTML("beforeend", `<div class="marker hover" style="left:${x}%"></div><div class="marker-label hover" style="left:${x}%">${hhmmss(o.ts)}</div>`);
-    renderPreview(o, "click to pin", () => openViewer(o));
   });
 }
 
