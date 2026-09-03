@@ -79,6 +79,8 @@ class MemoriesWindow:
         self._loop = loop
         # Where the page's RTVI messages go (the transport); set by the app.
         self.on_rtvi: Optional[Callable[[dict], None]] = None
+        # Told when the window closes and its page with it; set by the app.
+        self.on_closed: Optional[Callable[[], None]] = None
         self._window = None
         self._webview = None
         self._handler = _Handler.alloc().initWithWindow_(self)
@@ -107,9 +109,6 @@ class MemoriesWindow:
                 AppKit.NSApp.activateIgnoringOtherApps_(True)
             except Exception as e:  # noqa: BLE001
                 logger.exception(f"memories window failed to open: {e}")
-                return
-            if ids:
-                self.send("show", {"ids": list(ids)})
 
         AppHelper.callAfter(go)
 
@@ -248,3 +247,5 @@ class MemoriesWindow:
         self._window = None
         self._webview = None
         AppKit.NSApp.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+        if self.on_closed:
+            self.on_closed()

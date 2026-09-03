@@ -439,7 +439,7 @@ let rtviConnected;
 window.peekaboo = {
   rtviReady: new Promise((resolve) => { rtviConnected = resolve; }),
   rtviConnected: () => rtviConnected(),
-  onUICommand({ command, payload }) { if (!uiCommand(command, payload ?? {})) handle(command, payload ?? {}); },
+  onUICommand({ command, payload }) { if (command !== "status") plog(`ui-command ${command}`); if (!uiCommand(command, payload ?? {})) handle(command, payload ?? {}); },
   onServerMessage(data) { if (data && data.event) handle(data.event, data.payload ?? {}); },
 };
 // Pipecat's built-in UI commands, resolved against the snapshot refs the

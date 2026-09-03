@@ -147,6 +147,8 @@ class App:
         self.shell = ShellWorker(
             menubar=self.menubar, store=store, memories=self.memories, registry=registry, on_listen=lambda on: voice.set_listening(on)
         )
+        if self.memories:
+            self.memories.on_closed = self.shell.page_closed
         voice = VoiceWorker(
             transport,
             screen_from_transport=False,
@@ -168,6 +170,11 @@ class App:
         if voice.rtvi:
             # The page's data requests (client-message) are answered by the
             # shell worker; the response goes back as a server-response.
+            @voice.rtvi.event_handler("on_client_ready")
+            async def on_client_ready(rtvi):
+                # The window's page connected: pushes queued for it go now.
+                self.shell.page_ready()
+
             @voice.rtvi.event_handler("on_client_message")
             async def on_client_message(rtvi, message):
                 try:
@@ -183,7 +190,7 @@ class App:
         ui = PeekabooUIWorker()
         await self.runner.add_workers(history, screen, vision, voice, self.shell, ui)
         # Development hooks: open the page, poke it, picture it.
-        dev = self.args.open_memories or self.args.snapshot_memories or self.args.memories_eval or self.args.window_request
+        dev = self.args.open_memories or self.args.snapshot_memories or self.args.memories_eval or self.args.window_request or self.args.show_ids
         if dev and self.memories:
             self.memories.open()
 
@@ -191,6 +198,9 @@ class App:
                 await asyncio.sleep(4)
                 if self.args.memories_eval:
                     self.memories.evaluate(self.args.memories_eval)
+                if self.args.show_ids:
+                    await asyncio.sleep(3)
+                    self.shell.open_memories([int(i) for i in self.args.show_ids.split(",") if i.strip()])
                 if self.args.window_request:
                     await asyncio.sleep(3)  # the page's snapshot stream is up by then
                     await voice.request_job(
@@ -324,6 +334,7 @@ def parse_args():
     parser.add_argument("--snapshot-memories", type=Path, help="write a PNG of the memories page after launch")
     parser.add_argument("--memories-eval", metavar="JS", help="run JavaScript in the memories page after launch")
     parser.add_argument("--window-request", metavar="TEXT", help="hand TEXT to the window agent after launch, as if said by voice")
+    parser.add_argument("--show-ids", metavar="IDS", help="open the window on these memory ids after launch (comma-separated)")
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser.parse_args()
 

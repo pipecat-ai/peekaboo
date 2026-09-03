@@ -88,6 +88,8 @@ class ShellWorker(BaseUIWorker):
         self._on_listen = on_listen
         self._paused = False
         self._listening = True
+        self._page_ready = False
+        self._queued_pushes: list = []
         self._watcher_count = 0
         self._last_watchers: Optional[str] = None
         self._disk: tuple[float, int] = (0.0, 0)
@@ -158,6 +160,11 @@ class ShellWorker(BaseUIWorker):
         message = BusUICommandMessage(
             source=self.name, target=None, command_name=command, payload={} if payload is None else payload
         )
+        if not self._page_ready:
+            # The window was just opened and its page has not connected yet;
+            # a command sent now would be lost. It goes when the page is ready.
+            self._queued_pushes.append(message)
+            return
         try:
             running = asyncio.get_running_loop()
         except RuntimeError:
@@ -175,7 +182,30 @@ class ShellWorker(BaseUIWorker):
     def open_memories(self, ids: Optional[list[int]] = None):
         """Show the memories window, at these observations if given. Any thread."""
         if self._memories:
-            self._memories.open(ids)
+            self._memories.open()
+        if ids:
+            self._push("show", {"ids": [int(i) for i in ids]})
+
+    def page_ready(self):
+        """The window's page connected: anything pushed meanwhile goes now."""
+        self._page_ready = True
+        queued, self._queued_pushes = self._queued_pushes, []
+        for message in queued:
+            self._send_push(message)
+
+    def page_closed(self):
+        """The window closed and its page with it."""
+        self._page_ready = False
+
+    def _send_push(self, message):
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is self._loop:
+            self._loop.create_task(self.send_bus_message(message))
+        else:
+            asyncio.run_coroutine_threadsafe(self.send_bus_message(message), self._loop)
 
     def show_ask(self, ask_id: int):
         """Open the window if it is closed and show a past search on the Ask
