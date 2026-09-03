@@ -635,15 +635,16 @@ document.addEventListener("keydown", (e) => {
 async function loadDay() {
   const d = new Date(day + "T12:00:00");
   const today = dayISO(new Date()) === day;
-  $("#daylabel").textContent = (today ? "Today, " : "") + d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  const dayText = d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  $("#daylabel").textContent = (today ? "Today, " : "") + dayText;
   $("#daylabel").setAttribute("aria-label", `Day: ${$("#daylabel").textContent}. Opens the calendar`);
   // Zoomed in, the hour is the view: the day picker and its calendar belong
   // to the main Timeline, the day stays as a note beside the hour.
   const zoomed = zoomHour !== null;
   $("#tlback").hidden = !zoomed;
-  $("#tltitle").textContent = zoomed ? `${pad(zoomHour)}:00` : "Timeline";
-  $("#tlsub").hidden = !zoomed;
-  $("#tlsub").textContent = zoomed ? $("#daylabel").textContent : "";
+  // One plain line, like a calendar entry: the day, then the hour span.
+  $("#tltitle").textContent = zoomed ? `${dayText}, ${pad(zoomHour)}:00 – ${pad((zoomHour + 1) % 24)}:00` : "Timeline";
+  $("#tlsub").hidden = true;
   document.querySelector("#timeline .daypick").hidden = zoomed;
   if (zoomed) toggleCal(false);
   $("#nextday").style.opacity = today ? .4 : 1;
