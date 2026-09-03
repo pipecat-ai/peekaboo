@@ -75,6 +75,7 @@
   #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .head { height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 28px; border-bottom: 1px solid var(--line-soft); }
   .head h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  .head .subtitle { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
   .head .left { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .head .right { display: flex; align-items: center; gap: 8px; }
   .screen { display: none; flex: 1; min-height: 0; flex-direction: column; }
@@ -339,7 +340,7 @@
     <div class="head" data-drag>
       <div class="left">
         <span class="btn small" id="tlback" hidden role="button" aria-label="Back to the Timeline"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>Timeline</span>
-        <h1 id="tltitle">Timeline</h1>
+        <h1 id="tltitle">Timeline</h1><span class="subtitle" id="tlsub" hidden></span>
         <div class="daypick"><span class="arrow" id="prevday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></span><span class="label" id="daylabel" role="button" aria-haspopup="true" title="Pick a day"></span><span class="arrow" id="nextday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
         <!-- The month, as a dropdown from the day: which days hold memories, and how many. -->
         <div class="calpop" id="calpop" hidden>
@@ -636,8 +637,15 @@ async function loadDay() {
   const today = dayISO(new Date()) === day;
   $("#daylabel").textContent = (today ? "Today, " : "") + d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
   $("#daylabel").setAttribute("aria-label", `Day: ${$("#daylabel").textContent}. Opens the calendar`);
-  $("#tlback").hidden = zoomHour === null;
-  $("#tltitle").textContent = zoomHour === null ? "Timeline" : `${pad(zoomHour)}:00`;
+  // Zoomed in, the hour is the view: the day picker and its calendar belong
+  // to the main Timeline, the day stays as a note beside the hour.
+  const zoomed = zoomHour !== null;
+  $("#tlback").hidden = !zoomed;
+  $("#tltitle").textContent = zoomed ? `${pad(zoomHour)}:00` : "Timeline";
+  $("#tlsub").hidden = !zoomed;
+  $("#tlsub").textContent = zoomed ? $("#daylabel").textContent : "";
+  document.querySelector("#timeline .daypick").hidden = zoomed;
+  if (zoomed) toggleCal(false);
   $("#nextday").style.opacity = today ? .4 : 1;
   const [tracks, frames] = await Promise.all([call("day_tracks", { date: day }), call("day_frames", { date: day })]);
   dayFrames = frames;
