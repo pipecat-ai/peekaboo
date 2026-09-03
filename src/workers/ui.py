@@ -14,6 +14,7 @@ UI commands the page executes. Its short spoken reply goes straight to the
 voice worker's TTS.
 """
 
+import asyncio
 import os
 from datetime import datetime
 from typing import Optional
@@ -64,7 +65,16 @@ day. Any of them switches to the Timeline. "Show me 3 pm" is the hour;
 "between ten and eleven" is a span; "this morning" is 06:00 to 12:00. Prefer
 a click on a button that is in the state over the fields.
 
-Answer with exactly one call to [reply]:
+Questions about what the Timeline shows ("what was I working on in the last
+block around three", "what is in that selection") are answered from the
+state. If the block is not selected yet, call [select] with its ref first:
+it clicks and returns what the window shows afterwards, with the block's
+memories. Then answer with [reply] in two sentences from those memories'
+names, naming the apps and the span. Do not send the user to a search.
+
+[select] clicks without answering, for when you need to see the result
+before you speak (a block's memories, another screen). Finish every request
+with exactly one call to [reply]:
 - To open a memory, pass its ref as `click`. To go back, click the "Back"
   button. To switch screens, pass `navigate` with one of: ask, searches,
   timeline, watchers, settings.
@@ -92,6 +102,27 @@ class PeekabooUIWorker(UIWorker):
             ),
         )
         super().__init__(name, llm=llm)
+        self._snapshots = 0
+
+    @tool
+    async def select(self, params: FunctionCallParams, ref: str):
+        """Click an element and see the window afterwards, without answering yet.
+
+        Use it when what you need appears only after the click, such as the
+        memories of a Timeline block; then call reply.
+
+        Args:
+            ref: Ref of the element to click, from the current state.
+        """
+        before = self._snapshots
+        await self.click(ref)
+        # The page redraws and streams a new snapshot within a moment.
+        for _ in range(30):
+            await asyncio.sleep(0.1)
+            if self._snapshots != before:
+                break
+        await asyncio.sleep(0.2)
+        await params.result_callback(f"Clicked {ref}. The window now shows:\n{self.render_ui_state()}")
 
     @tool
     async def reply(
@@ -149,6 +180,7 @@ class PeekabooUIWorker(UIWorker):
     async def on_bus_message(self, message: BusMessage) -> None:
         await super().on_bus_message(message)
         if isinstance(message, BusUIEventMessage) and message.event_name == _UI_SNAPSHOT_BUS_EVENT_NAME:
+            self._snapshots += 1
             state = self.render_ui_state()
             logger.debug(f"{self}: snapshot, {state.count(chr(10)) + 1} lines, ~{len(state) // 4} tokens")
             logger.trace(f"{self}: {state}")

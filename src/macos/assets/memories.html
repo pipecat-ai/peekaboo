@@ -910,7 +910,7 @@ function renderStrip() {
     f.innerHTML = `<div class="img">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
       <div class="t">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b></div><div class="when">${hhmmss(o.ts)}</div>`;
     f.title = o.title || "";
-    f.setAttribute("role", "button"); f.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmmss(o.ts)}: ${brief(o.title || o.content, 80)}`); f.setAttribute("aria-selected", tlSelected && o.id === tlSelected.id ? "true" : "false");
+    f.setAttribute("role", "button"); f.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmmss(o.ts)}: ${brief(o.title ? `${o.title}. ${o.content}` : o.content, 120)}`); f.setAttribute("aria-selected", tlSelected && o.id === tlSelected.id ? "true" : "false");
     for (const c of f.children) c.setAttribute("data-a11y-exclude", "");
     if (index >= STRIP_A11Y_MAX && !(tlSelected && tlSelected.id === o.id)) f.setAttribute("data-a11y-exclude", "");
     f.onclick = () => { if (tlSelected && tlSelected.id === o.id) { openStrip(); return; } tlSelected = o; renderStrip(); };
