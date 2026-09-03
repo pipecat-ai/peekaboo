@@ -6,6 +6,9 @@
 
 import asyncio
 import os
+
+import httpx
+from anthropic import AsyncAnthropic
 from datetime import date, datetime
 from typing import Optional
 
@@ -34,6 +37,8 @@ from workers.names import HISTORY_WORKER
 # queue behind the running one, so this bounds how long a stuck search can
 # hold the queue.
 SEARCH_TIMEOUT_SECS = 120
+# No token for this long from the model ends the request.
+STREAM_READ_TIMEOUT_SECS = 60.0
 
 SEARCH_LIMIT = 20
 TIMELINE_LIMIT = 100
@@ -131,9 +136,18 @@ class HistoryWorker(PipelineWorker):
         turns.add_event_handler("on_turn", self._on_turn)
 
     def _build_pipeline(self, turns: LLMTurnCollector) -> Pipeline:
+        # A stream that stalls after its first token once sat for twelve
+        # minutes; the client's read timeout turns that into an error the
+        # search can report instead.
+        client = AsyncAnthropic(
+            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            timeout=httpx.Timeout(STREAM_READ_TIMEOUT_SECS, connect=10.0),
+            max_retries=1,
+        )
         llm = AnthropicLLMService(
             name="HistoryAnthropicLLMService",
             api_key=os.getenv("ANTHROPIC_API_KEY"),
+            client=client,
             settings=AnthropicLLMService.Settings(
                 system_instruction=system_instruction(),
                 max_tokens=self._max_tokens,

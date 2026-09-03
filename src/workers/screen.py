@@ -5,6 +5,7 @@
 #
 
 import asyncio
+from collections import deque
 import io
 import json
 import os
@@ -146,6 +147,9 @@ IMAGE_OUTPUT_FORMAT = {
 # A description is a paragraph and a dozen strings; anything longer is the
 # model looping, and the sooner it is cut off the sooner the frame is retried.
 SCREEN_MAX_TOKENS = 1024
+# Cost telemetry: what one image analysis costs, roughly, and how often to log the rate.
+ANALYSIS_COST_USD = 0.005
+ANALYSIS_LOG_EVERY = 20
 
 
 class ScreenWorker(PipelineWorker):
@@ -199,6 +203,8 @@ class ScreenWorker(PipelineWorker):
         self._store = store
         self._frame_source = source or TransportScreenSource()
         self._gate = ChangeGate()
+        self._analyses: deque[float] = deque()
+        self._analyses_total = 0
         self._image_processor = VisionImageProcessor(
             system_instruction=IMAGE_SYSTEM_INSTRUCTION, watchlist=[NOTIFICATION_WATCH]
         )
@@ -519,12 +525,27 @@ class ScreenWorker(PipelineWorker):
     # Pipeline events
     #
 
+    def _count_analysis(self):
+        """Cost telemetry: the analysis rate, logged every so often."""
+        now = time.monotonic()
+        self._analyses.append(now)
+        while self._analyses and self._analyses[0] < now - 3600:
+            self._analyses.popleft()
+        self._analyses_total += 1
+        if self._analyses_total % ANALYSIS_LOG_EVERY == 0:
+            span = max(60.0, now - self._analyses[0]) if len(self._analyses) > 1 else 60.0
+            per_hour = len(self._analyses) * 3600 / span
+            logger.info(
+                f"{self}: {self._analyses_total} analyses this session, "
+                f"{per_hour:.0f}/h over the last {span / 60:.0f} min ≈ ${per_hour * ANALYSIS_COST_USD:.2f}/h"
+            )
+
     async def _on_screen_frame(self, gate, frame: ScreenFrame):
         self._latest[frame.target] = frame
         for future in self._waiting.pop(frame.target, []):
             if not future.done():
                 future.set_result(frame)
-        if frame.role == "screen" and frame.moment is not None and frame.changed and frame.key:
+        if frame.role == "screen" and frame.moment is not None and frame.changed and frame.key and self._frame_source.capturing:
             await self._keep_still(frame)
 
     async def _keep_still(self, frame: ScreenFrame):
@@ -560,6 +581,12 @@ class ScreenWorker(PipelineWorker):
         # them together: the description and text for search, the frame so
         # the memory can be shown later.
         sent = self._image_processor.take_last_sent()
+        self._count_analysis()
+        if not self._frame_source.capturing:
+            # Paused: watchers still get their hits (handled elsewhere), but
+            # nothing is remembered.
+            logger.debug(f"{self}: paused, not storing the analysis of {sent.target if sent else '?'}")
+            return
 
         kind = data.get("type")
         verbatim = [str(item) for item in data.get("verbatim_text") or [] if str(item).strip()]

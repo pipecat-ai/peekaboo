@@ -25,6 +25,8 @@ DB_FILE = "peekaboo.db"
 FRAMES_DIR = "frames"
 SCHEMA_VERSION = 2
 IMAGE_RETENTION_DAYS = 7
+# Screen stills are context for their moment; they go sooner than window frames.
+STILL_RETENTION_DAYS = 2
 
 # Content rows: window frames, and screen descriptions recorded before windows
 # were (they have no moment). Screen stills and screen descriptions taken as
@@ -279,18 +281,24 @@ class SQLiteStore:
             str(thumb_path.relative_to(self._root)),
         )
 
-    async def prune_images(self, older_than_days: int = IMAGE_RETENTION_DAYS) -> int:
-        """Delete frames older than the retention window. Text is kept.
+    async def prune_images(
+        self, older_than_days: int = IMAGE_RETENTION_DAYS, stills_older_than_days: int = STILL_RETENTION_DAYS
+    ) -> int:
+        """Delete frames older than the retention window, screen stills
+        sooner. Text is kept.
 
         Returns how many observations lost their images.
         """
         cutoff = int((datetime.now() - timedelta(days=older_than_days)).timestamp())
-        return await self._run(self._prune_images_sync, cutoff)
+        stills_cutoff = int((datetime.now() - timedelta(days=stills_older_than_days)).timestamp())
+        pruned = await self._run(self._prune_images_sync, cutoff, "")
+        pruned += await self._run(self._prune_images_sync, stills_cutoff, " AND kind = 'screen'")
+        return pruned
 
-    def _prune_images_sync(self, cutoff: int) -> int:
+    def _prune_images_sync(self, cutoff: int, extra: str) -> int:
         rows = self._db.execute(
             "SELECT id, screenshot_path, thumbnail_path FROM observations "
-            "WHERE ts < ? AND screenshot_path IS NOT NULL",
+            f"WHERE ts < ? AND screenshot_path IS NOT NULL{extra}",
             (cutoff,),
         ).fetchall()
         # A frame can be shared by several observations (deduplicated by hash),
@@ -308,7 +316,7 @@ class SQLiteStore:
                     self.resolve(path).unlink(missing_ok=True)
         self._db.execute(
             "UPDATE observations SET screenshot_path = NULL, thumbnail_path = NULL "
-            "WHERE ts < ? AND screenshot_path IS NOT NULL",
+            f"WHERE ts < ? AND screenshot_path IS NOT NULL{extra}",
             (cutoff,),
         )
         self._db.commit()

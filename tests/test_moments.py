@@ -218,3 +218,32 @@ def test_store_separates_content_from_screen_stills(tmp_path):
             await store.close()
 
     asyncio.run(go())
+
+
+def test_prune_drops_still_images_sooner_than_window_frames(tmp_path):
+    import asyncio
+    import time
+
+    from PIL import Image
+
+    from store.models import Observation
+    from store.sqlite_store import SQLiteStore
+
+    async def go():
+        store = SQLiteStore(root=tmp_path)
+        await store.open()
+        try:
+            three_days = int(time.time()) - 3 * 86400
+            img = Image.new("RGB", (64, 40), "gray")
+            shot, thumb = await store.save_frame(img, three_days, "aaaa")
+            still = await store.add(Observation(timestamp=three_days, target="screen", kind="screen", content="", moment=three_days, screenshot_path=shot, thumbnail_path=thumb))
+            shot2, thumb2 = await store.save_frame(Image.new("RGB", (64, 40), "blue"), three_days + 1, "bbbb")
+            win = await store.add(Observation(timestamp=three_days + 1, target="window:1", content="x", moment=three_days, screenshot_path=shot2, thumbnail_path=thumb2))
+            pruned = await store.prune_images(older_than_days=7, stills_older_than_days=2)
+            assert pruned == 1
+            got = {o.id: o for o in await store.get([still.id, win.id])}
+            assert got[still.id].screenshot_path is None and got[win.id].screenshot_path == shot2
+        finally:
+            await store.close()
+
+    asyncio.run(go())
