@@ -65,6 +65,7 @@ async def request_microphone() -> bool:
     """Prompt for the microphone if undecided. Returns the grant state."""
     if microphone_granted():
         return True
+    logger.info("asking for the microphone; waiting for the answer")
     loop = asyncio.get_running_loop()
     future: asyncio.Future = loop.create_future()
 
@@ -81,6 +82,7 @@ def request_screen_recording() -> bool:
     state, which is usually still False right after the prompt."""
     if screen_recording_granted():
         return True
+    logger.info("asking for Screen Recording; the grant takes effect after a relaunch")
     return bool(Quartz.CGRequestScreenCaptureAccess())
 
 
