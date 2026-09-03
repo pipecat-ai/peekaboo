@@ -428,6 +428,20 @@ class SQLiteStore:
         ).fetchall()
         return [_row_to_observation(r) for r in rows]
 
+    async def month_counts(self, year: int, month: int) -> dict[str, int]:
+        """Memories per day (ISO date) in a month, for the calendar."""
+        start = datetime(year, month, 1)
+        end = datetime(year + (month == 12), 1 if month == 12 else month + 1, 1)
+        return await self._run(self._month_counts_sync, int(start.timestamp()), int(end.timestamp()))
+
+    def _month_counts_sync(self, since: int, until: int) -> dict[str, int]:
+        rows = self._db.execute(
+            "SELECT date(ts, 'unixepoch', 'localtime') AS d, COUNT(*) AS n FROM observations "
+            "WHERE ts >= ? AND ts < ? GROUP BY d",
+            (since, until),
+        ).fetchall()
+        return {r["d"]: r["n"] for r in rows}
+
     async def coverage(self, day: date) -> DayCoverage:
         """Which hours of a day have observations, and how many."""
         start = datetime(day.year, day.month, day.day)

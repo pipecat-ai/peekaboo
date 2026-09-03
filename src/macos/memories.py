@@ -156,7 +156,11 @@ class MemoriesWindow:
                 png.writeToFile_atomically_(str(path), True)
                 logger.info(f"memories: snapshot written to {path}")
 
-            self._webview.takeSnapshotWithConfiguration_completionHandler_(None, done)
+            # Wait for pending layout and paint, or content set moments ago
+            # by the page can be missing from the capture.
+            config = WebKit.WKSnapshotConfiguration.alloc().init()
+            config.setAfterScreenUpdates_(True)
+            self._webview.takeSnapshotWithConfiguration_completionHandler_(config, done)
 
         AppHelper.callAfter(go)
 

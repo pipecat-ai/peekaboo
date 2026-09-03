@@ -15,6 +15,7 @@ voice worker's TTS.
 """
 
 import os
+from datetime import datetime
 from typing import Optional
 
 from loguru import logger
@@ -45,6 +46,23 @@ Each request comes with the current <ui_state>. Memory cards are buttons
 named "<app> at <time>: <what was on screen>", listed in reading order in a
 grid three across. Resolve "the first one", "the third screenshot", "the
 terminal one", "this" against that state.
+
+The Timeline works by voice exactly as by mouse. It has a month calendar
+(days are buttons named "Tue 2 Sep: 8 memories"), the day's hours as tracks
+(hour labels are buttons named "10:00: 12 memories"; clicking one zooms into
+that hour, and zoomed in, the blocks on the track are buttons named
+"Ghostty 10:05–10:12: 7 memories"), a "Selected …" line, and a strip of the
+selected memories (buttons named "<app> at <time>: <what was on screen>",
+the selected one tagged [selected]). Clicking a day, an hour, a block, or a
+strip memory does what a mouse click does; clicking the strip memory that is
+already selected opens it in the Viewer, so "the third one" selects it and
+"open it" clicks it again. The timeline fields of [reply] do the rest:
+`timeline_day` for a day ("last Tuesday", "yesterday", "the 14th": work out
+the date from the current time given with the request), `timeline_hour` to
+zoom into an hour, `timeline_from` and `timeline_to` to select a span of the
+day. Any of them switches to the Timeline. "Show me 3 pm" is the hour;
+"between ten and eleven" is a span; "this morning" is 06:00 to 12:00. Prefer
+a click on a button that is in the state over the fields.
 
 Answer with exactly one call to [reply]:
 - To open a memory, pass its ref as `click`. To go back, click the "Back"
@@ -84,6 +102,10 @@ class PeekabooUIWorker(UIWorker):
         navigate: Optional[str] = None,
         highlight: Optional[list[str]] = None,
         scroll_to: Optional[str] = None,
+        timeline_day: Optional[str] = None,
+        timeline_hour: Optional[int] = None,
+        timeline_from: Optional[str] = None,
+        timeline_to: Optional[str] = None,
     ):
         """Reply to the user and act on the window. Called exactly once per request.
 
@@ -93,7 +115,17 @@ class PeekabooUIWorker(UIWorker):
             navigate: Screen to switch to: ask, searches, timeline, watchers, or settings.
             highlight: Refs of elements to flash briefly, to point at them.
             scroll_to: Ref of an element to bring into view.
+            timeline_day: Day to show on the Timeline, as YYYY-MM-DD.
+            timeline_hour: Hour of that day to zoom into, 0 to 23.
+            timeline_from: Start of a span to select on the Timeline, as HH:MM.
+            timeline_to: End of that span, as HH:MM.
         """
+        if timeline_day or timeline_hour is not None or timeline_from or timeline_to:
+            await self.send_command(
+                "timeline",
+                {"day": timeline_day, "hour": timeline_hour, "from": timeline_from, "to": timeline_to},
+            )
+            navigate = None
         if navigate:
             view = navigate.strip().lower()
             if view in SCREENS:
@@ -108,6 +140,11 @@ class PeekabooUIWorker(UIWorker):
             await self.click(click)
         await self.respond_to_job(answer, tts_speak=True)
         await params.result_callback(None)
+
+    def render_query(self, message) -> str:
+        # Relative days ("last Tuesday") need to know when now is.
+        now = datetime.now().astimezone().strftime("%A %Y-%m-%d %H:%M")
+        return f"(now: {now}) {super().render_query(message)}"
 
     async def on_bus_message(self, message: BusMessage) -> None:
         await super().on_bus_message(message)

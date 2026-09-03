@@ -131,9 +131,31 @@
   /* Timeline */
   .daypick { display: flex; align-items: center; border: 1px solid var(--line-strong); border-radius: 6px; height: 26px; overflow: hidden; }
   .daypick .arrow { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; }
-  .daypick .label { padding: 0 12px; font-weight: 500; font-size: 12.5px; border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong); }
-  .legend { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-2); }
-  .legend .key { display: flex; align-items: center; gap: 5px; } .legend .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .daypick .label { padding: 0 12px; font-weight: 500; font-size: 12.5px; border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong); white-space: nowrap; }
+  .head .left { position: relative; }
+  .daypick .label { cursor: default; } .daypick .label:hover { background: var(--hover, rgba(0,0,0,.04)); }
+  .calpop { position: absolute; top: 38px; left: 0; z-index: 20; padding: 12px 14px 10px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.18); }
+  .calhead { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .calhead b { font-size: 13px; flex: 1; text-align: center; }
+  .calhead .arrow { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; } .calhead .arrow:hover { background: var(--hover, rgba(0,0,0,.05)); }
+  .calweek, .caldays { display: grid; grid-template-columns: repeat(7, 32px); gap: 3px; }
+  .calweek span { font: 10px var(--mono); color: var(--faint); text-align: center; }
+  .caldays .d { height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-2); position: relative;
+    background: color-mix(in srgb, var(--accent) calc(var(--heat, 0) * 65%), transparent); }
+  .caldays .d.has { color: var(--text); font-weight: 500; }
+  .caldays .d:hover { outline: 1px solid var(--line-strong); }
+  .caldays .d.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .caldays .d.today::after { content: ""; position: absolute; bottom: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+  .caldays .d.future { color: var(--faint); }
+  .calhint { margin-top: 10px; font: 10.5px var(--mono); color: var(--faint); white-space: nowrap; }
+  .tip { position: fixed; z-index: 30; pointer-events: none; padding: 7px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line-strong); box-shadow: 0 6px 18px rgba(0,0,0,.14); font-size: 12px; display: flex; flex-direction: column; gap: 2px; max-width: 260px; }
+  .tip .who { display: flex; align-items: center; gap: 6px; font-weight: 600; } .tip .sw { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .tip .sub { color: var(--muted); font: 11px var(--mono); }
+  .tl-row .hour.zoomable { border-radius: 4px; } .tl-row .hour:hover { color: var(--accent); }
+  .tl-row.zoom .track { height: 120px; background-image: repeating-linear-gradient(90deg, var(--line-soft) 0 1px, transparent 1px calc(100% / 12)); }
+  .tl-row .rsel { position: absolute; top: -5px; bottom: -5px; background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid var(--accent); border-radius: 4px; pointer-events: none; z-index: 2; }
+  .tlsel { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 12.5px; color: var(--text-2); }
+  .tlsel b { color: var(--text); } .tlsel .btn { margin-left: auto; }
   .tl-head, .tl-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 96px; gap: 16px; align-items: center; }
   .tl-head { font: 10.5px var(--mono); color: var(--faint); padding-bottom: 8px; }
   .tl-head .ticks { display: flex; justify-content: space-between; }
@@ -148,8 +170,6 @@
   .tl-row .seg.mixed::after { content: ""; position: absolute; inset: 0; border-radius: 4px; background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255,255,255,.28) 6px 8px); pointer-events: none; }
   .tl-row .seg.on { box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px var(--accent-soft); z-index: 1; }
   .tl-row .track .quietlabel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font: 10px var(--mono); color: var(--muted); background: var(--bg); padding: 1px 5px; border-radius: 3px; }
-  .legend .more { color: var(--muted); }
-  .legend .key .n { font: 10.5px var(--mono); color: var(--faint); }
   .tl-row .marker { position: absolute; top: -6px; bottom: -6px; width: 2px; background: var(--accent); border-radius: 1px; pointer-events: none; }
   .tl-row .marker.hover { background: var(--accent-dark); opacity: .55; }
   .tl-row .track { cursor: crosshair; }
@@ -315,14 +335,27 @@
   <section class="screen" id="timeline" aria-label="Timeline">
     <div class="head" data-drag>
       <div class="left"><h1>Timeline</h1>
-        <div class="daypick"><span class="arrow" id="prevday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></span><span class="label" id="daylabel"></span><span class="arrow" id="nextday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
+        <div class="daypick"><span class="arrow" id="prevday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></span><span class="label" id="daylabel" role="button" aria-haspopup="true" title="Pick a day"></span><span class="arrow" id="nextday"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
+        <!-- The month, as a dropdown from the day: which days hold memories, and how many. -->
+        <div class="calpop" id="calpop" hidden>
+          <div class="calhead">
+            <span class="arrow" id="prevmonth" role="button" aria-label="Previous month"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+            <b id="monthlabel"></b>
+            <span class="arrow" id="nextmonth" role="button" aria-label="Next month"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+            <span class="btn small" id="gotoday" role="button">Today</span>
+          </div>
+          <div class="calweek" data-a11y-exclude><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+          <div class="caldays" id="caldays" role="grid" aria-colcount="7" aria-label="Calendar"></div>
+          <div class="calhint" data-a11y-exclude>← → day · ↑ ↓ week · ⇞ ⇟ month · Home today</div>
+        </div>
       </div>
-      <div class="legend" id="legend"></div>
     </div>
     <div class="body" style="gap:0">
       <div class="tl-head" data-a11y-exclude><div></div><div class="ticks"><span>:00</span><span>:15</span><span>:30</span><span>:45</span><span></span></div><div style="text-align:right">memories</div></div>
-      <div id="rows" data-a11y-exclude></div>
-      <div class="tlstrip" id="tlstrip" hidden role="list" aria-label="Memories in the selected block"></div>
+      <div id="rows"></div>
+      <div class="tip" id="tip" hidden data-a11y-exclude></div>
+      <div class="tlsel" id="tlsel" hidden role="region" aria-label="Selection"></div>
+      <div class="tlstrip" id="tlstrip" hidden role="list" aria-label="Selected memories"></div>
       <div class="preview" id="preview" hidden data-a11y-exclude></div>
     </div>
   </section>
@@ -387,6 +420,7 @@ const byRef = (p) => (p.ref ? window.peekaboo.findElementByRef(p.ref) : p.target
 function uiCommand(command, p) {
   switch (command) {
     case "navigate": show(String(p.view || "ask")); return true;
+    case "timeline": applyTimeline(p); return true;
     case "click": { const el = byRef(p); if (el) { el.scrollIntoView({ block: "nearest" }); el.click(); } return true; }
     case "scroll_to": byRef(p)?.scrollIntoView({ block: "center", behavior: "smooth" }); return true;
     case "focus": byRef(p)?.focus(); return true;
@@ -403,6 +437,9 @@ async function call(method, params = {}) {
 
 // ---- helpers ----------------------------------------------------------
 const $ = (s) => document.querySelector(s);
+const plog = (m) => window.webkit.messageHandlers.peekaboo.postMessage({ method: "log", params: String(m) });
+window.addEventListener("error", (e) => plog(`js error: ${e.message} (line ${e.lineno})`));
+window.addEventListener("unhandledrejection", (e) => plog(`js rejection: ${e.reason && e.reason.stack ? e.reason.stack.split("\n").slice(0, 2).join(" | ") : e.reason}`));
 const brief = (text, n = 140) => { const t = String(text ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1).replace(/\s\S*$/, "") + "…" : t; };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const STOP = new Set("the a an and or of to in on at for from with was were is are be been my me i it this that what when where how did do does around about looked look see saw".split(" "));
@@ -573,10 +610,19 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { stopPlay(); show(lastScreen); }
   } else if (screen === "timeline") {
     if (e.key === "Enter" && tlSelected) openStrip();
-    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && stripItems.length) {
+    else if (e.key === "Escape") { if (!$("#calpop").hidden) toggleCal(false); else if (stripItems.length || tlRange) clearSelection(); else if (zoomHour !== null) { zoomHour = null; loadDay(); } }
+    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && stripItems.length) {
+      // With memories selected the arrows step through them; Escape first to move days.
       const i = stripItems.findIndex((o) => o.id === tlSelected.id); const j = i + (e.key === "ArrowRight" ? 1 : -1);
       if (j >= 0 && j < stripItems.length) { tlSelected = stripItems[j]; renderStrip(); }
     }
+    else if (e.key === "ArrowLeft") shiftDay(-1);
+    else if (e.key === "ArrowRight") shiftDay(1);
+    else if (e.key === "ArrowUp") { e.preventDefault(); shiftDay(-7); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); shiftDay(7); }
+    else if (e.key === "PageUp") shiftMonth(-1);
+    else if (e.key === "PageDown") shiftMonth(1);
+    else if (e.key === "Home") gotoDay(dayISO(new Date()));
   }
 });
 
@@ -585,42 +631,192 @@ async function loadDay() {
   const d = new Date(day + "T12:00:00");
   const today = dayISO(new Date()) === day;
   $("#daylabel").textContent = (today ? "Today, " : "") + d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  $("#daylabel").setAttribute("aria-label", `Day: ${$("#daylabel").textContent}. Opens the calendar`);
   $("#nextday").style.opacity = today ? .4 : 1;
   const [tracks, frames] = await Promise.all([call("day_tracks", { date: day }), call("day_frames", { date: day })]);
   dayFrames = frames;
   const rows = $("#rows"); rows.innerHTML = "";
   const apps = new Map();
   const hours = tracks.hours.filter((h) => h.count > 0);
-  const range = hours.length ? [Math.min(...hours.map((h) => h.hour)), Math.max(...hours.map((h) => h.hour))] : [9, 17];
+  const span = hours.length ? [Math.min(...hours.map((h) => h.hour)), Math.max(...hours.map((h) => h.hour))] : [9, 17];
+  const range = zoomHour !== null ? [zoomHour, zoomHour] : span;
   dayTracks = tracks;
   for (let h = range[0]; h <= range[1]; h++) {
-    const row = tracks.hours.find((x) => x.hour === h) || { hour: h, count: 0, minutes: [], start: 0 };
+    const row = tracks.hours.find((x) => x.hour === h) || { hour: h, count: 0, minutes: [], start: new Date(day + "T00:00:00").getTime() / 1000 + h * 3600 };
     row.blocks = blocksOf(row);
-    const el = document.createElement("div"); el.className = "tl-row";
-    let inner = row.blocks.length ? "" : `<span class="quietlabel">quiet</span>`;
+    const el = document.createElement("div"); el.className = "tl-row" + (zoomHour !== null ? " zoom" : "");
+    let inner = row.blocks.length ? "" : `<span class="quietlabel" data-a11y-exclude>quiet</span>`;
     for (const b of row.blocks) {
       const others = Object.keys(b.apps).filter((a) => a !== b.app);
       const label = `${esc(b.app)}${others.length ? ` (mostly) · also ${esc(others.join(", "))}` : ""} · ${b.ids.length} ${b.ids.length === 1 ? "memory" : "memories"} · ${pad(row.hour)}:${pad(b.from)}–${pad(row.hour)}:${pad(b.to + 1)}`;
-      inner += `<div class="seg${others.length ? " mixed" : ""}" data-key="${b.from}" style="left:${(b.from / 60) * 100}%;width:${((b.to - b.from + 1) / 60) * 100}%;background:${appColor(b.app)}" title="${label}"></div>`;
+      const a11y = zoomHour !== null ? `role="button" aria-label="${esc(b.app)} ${pad(row.hour)}:${pad(b.from)}–${pad(row.hour)}:${pad(b.to + 1)}: ${b.ids.length} ${b.ids.length === 1 ? "memory" : "memories"}"` : "";
+      inner += `<div class="seg${others.length ? " mixed" : ""}" ${a11y} data-key="${b.from}" data-tip="${label}" style="left:${(b.from / 60) * 100}%;width:${((b.to - b.from + 1) / 60) * 100}%;background:${appColor(b.app)}"></div>`;
     }
-    el.innerHTML = `<div class="hour">${pad(row.hour)}:00</div><div class="track" data-hour="${h}">${inner}</div><div class="count">${row.count}</div>`;
+    el.innerHTML = `<div class="hour zoomable" role="button" aria-label="${pad(row.hour)}:00: ${row.count} ${row.count === 1 ? "memory" : "memories"}${zoomHour !== null ? ", zoomed in" : ""}" title="${zoomHour !== null ? "Back to the whole day" : "Zoom into this hour"}">${pad(row.hour)}:00</div><div class="track" data-hour="${h}"${zoomHour === null ? " data-a11y-exclude" : ""}>${inner}</div><div class="count" data-a11y-exclude>${row.count}</div>`;
     const track = el.querySelector(".track");
     row.frames = dayFrames.filter((o) => o.ts >= row.start && o.ts < row.start + 3600);
-    track.onclick = (e) => scrub(row, e);
+    el.querySelector(".hour").onclick = () => { zoomHour = zoomHour === null ? h : null; loadDay(); };
+    track.onmousedown = (e) => beginDrag(row, e);
+    track.onclick = (e) => { if (suppressClick) { suppressClick = false; return; } if (e.shiftKey && tlRange) { extendRange(row, e); return; } scrub(row, e); };
     track.ondblclick = () => tlSelected && openStrip();
-    track.onmousemove = (e) => hover(row, e);
+    track.onmousemove = (e) => { hover(row, e); blockTip(row, e); };
     track.onmouseleave = () => {
+      $("#tip").hidden = true;
       track.querySelectorAll(".marker.hover, .marker-label.hover").forEach((m) => m.remove());
       if (tlSelected) renderStrip(); else $("#preview").hidden = true;
     };
     rows.appendChild(el);
   }
-  for (const a of tracks.apps) apps.set(a.app, { color: appColor(a.app), count: a.count });
-  const shown = [...apps].slice(0, MAX_LEGEND), hidden = apps.size - shown.length;
-  $("#legend").innerHTML = shown.map(([a, v]) => `<div class="key" title="${v.count} memories"><div class="sw" style="background:${v.color}"></div><span>${esc(a)}</span><span class="n">${v.count}</span></div>`).join("")
-    + (hidden > 0 ? `<span class="more">+${hidden} more</span>` : "")
-    + `<div class="key"><div class="sw" style="background:repeating-linear-gradient(135deg,var(--quiet-a) 0 3px,var(--quiet-b) 3px 6px);border:1px solid var(--quiet-line)"></div><span>Quiet</span></div>`;
-  if (tlSelected && dayISO(new Date(tlSelected.ts * 1000)) !== day) { tlSelected = null; stripItems = []; renderStrip(); }
+  if (tlSelected && dayISO(new Date(tlSelected.ts * 1000)) !== day) { tlSelected = null; stripItems = []; tlRange = null; renderStrip(); }
+  if (tlRange && dayISO(new Date(tlRange.from * 1000)) !== day) { tlRange = null; renderSelection(); }
+  if (tlRange) paintRange();
+  if (!$("#calpop").hidden) loadCal();
+}
+
+// The block under the mouse, named: app, others in it, span, count.
+function blockTip(row, e) {
+  const tip = $("#tip"), seg = e.target.closest(".seg");
+  if (!seg) { tip.hidden = true; return; }
+  const b = row.blocks.find((x) => String(x.from) === seg.dataset.key); if (!b) { tip.hidden = true; return; }
+  const others = Object.entries(b.apps).filter(([a]) => a !== b.app).map(([a, n]) => `${a} ${n}`);
+  tip.innerHTML = `<div class="who"><span class="sw" style="background:${appColor(b.app)}"></span>${esc(b.app)}</div>
+    <div class="sub">${pad(row.hour)}:${pad(b.from)}–${pad(row.hour)}:${pad(b.to + 1)} · ${b.ids.length} ${b.ids.length === 1 ? "memory" : "memories"}</div>${others.length ? `<div class="sub">also ${esc(others.join(", "))}</div>` : ""}`;
+  tip.hidden = false;
+  const r = tip.getBoundingClientRect(), sr = seg.getBoundingClientRect();
+  tip.style.left = `${Math.max(8, Math.min(window.innerWidth - r.width - 8, e.clientX - r.width / 2))}px`;
+  tip.style.top = `${sr.top - r.height - 10}px`;
+}
+
+// ---- the calendar (a dropdown from the day), hour zoom, and time selection ----
+function toggleCal(open) {
+  const pop = $("#calpop"); const show = open ?? pop.hidden;
+  pop.hidden = !show;
+  if (show) {
+    const pick = document.querySelector("#timeline .daypick");
+    pop.style.left = `${pick.offsetLeft}px`;
+    const d = new Date(day + "T12:00:00"); calMonth = { y: d.getFullYear(), m: d.getMonth() + 1 }; loadCal();
+  }
+}
+$("#daylabel").onclick = (e) => { e.stopPropagation(); toggleCal(); };
+$("#calpop").onclick = (e) => e.stopPropagation();
+document.addEventListener("click", () => { if (!$("#calpop").hidden) toggleCal(false); });
+let zoomHour = null;        // an hour shown alone, or null for the whole day
+let tlRange = null;         // {from, to} seconds, a selected span of the day
+let calMonth = null;        // {y, m} shown, follows the day unless moved
+let calCounts = {};
+let suppressClick = false;
+async function loadCal() {
+  const d = new Date(day + "T12:00:00");
+  if (!calMonth) calMonth = { y: d.getFullYear(), m: d.getMonth() + 1 };
+  const res = await call("month", { year: calMonth.y, month: calMonth.m });
+  calCounts = res.days || {};
+  renderCal();
+}
+function renderCal() {
+  const { y, m } = calMonth;
+  $("#monthlabel").textContent = new Date(y, m - 1, 1).toLocaleDateString([], { month: "long", year: "numeric" });
+  const first = new Date(y, m - 1, 1), daysIn = new Date(y, m, 0).getDate(), today = dayISO(new Date());
+  const lead = (first.getDay() + 6) % 7;
+  const max = Math.max(1, ...Object.values(calCounts));
+  const grid = $("#caldays"); grid.innerHTML = "";
+  for (let i = 0; i < lead; i++) { const b = document.createElement("div"); b.setAttribute("data-a11y-exclude", ""); grid.appendChild(b); }
+  for (let n = 1; n <= daysIn; n++) {
+    const iso = `${y}-${pad(m)}-${pad(n)}`, count = calCounts[iso] || 0;
+    const cell = document.createElement("div");
+    cell.className = "d" + (count ? " has" : "") + (iso === day ? " sel" : "") + (iso === today ? " today" : "") + (iso > today ? " future" : "");
+    cell.textContent = String(n);
+    cell.style.setProperty("--heat", count ? String(0.25 + 0.75 * Math.sqrt(count / max)) : "0");
+    const label = new Date(y, m - 1, n).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+    cell.setAttribute("role", "button"); cell.setAttribute("aria-label", `${label}: ${count} ${count === 1 ? "memory" : "memories"}`);
+    if (!count && iso !== day) cell.setAttribute("data-a11y-exclude", "");
+    cell.setAttribute("aria-selected", iso === day ? "true" : "false");
+    cell.title = `${label} · ${count} memories`;
+    if (iso <= today) cell.onclick = () => gotoDay(iso);
+    grid.appendChild(cell);
+  }
+}
+function gotoDay(iso) {
+  const today = dayISO(new Date());
+  if (iso > today) iso = today;
+  day = iso; zoomHour = null; tlRange = null;
+  const d = new Date(day + "T12:00:00"); calMonth = { y: d.getFullYear(), m: d.getMonth() + 1 };
+  toggleCal(false);
+  renderSelection(); loadDay();
+}
+function shiftDay(days) { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + days); gotoDay(dayISO(d)); }
+function shiftMonth(months) { const d = new Date(calMonth.y, calMonth.m - 1 + months, 1); calMonth = { y: d.getFullYear(), m: d.getMonth() + 1 }; loadCal(); }
+$("#prevmonth").onclick = () => shiftMonth(-1);
+$("#nextmonth").onclick = () => shiftMonth(1);
+$("#gotoday").onclick = () => gotoDay(dayISO(new Date()));
+
+// Dragging along a track selects a span of time; the strip shows what is in it.
+function beginDrag(row, e) {
+  if (e.button !== 0 || e.shiftKey) return;
+  const track = e.currentTarget, rect = track.getBoundingClientRect();
+  const x0 = e.clientX; let dragging = false;
+  const frac = (x) => Math.min(1, Math.max(0, (x - rect.left) / rect.width));
+  const move = (ev) => {
+    if (!dragging && Math.abs(ev.clientX - x0) < 4) return;
+    dragging = true;
+    const a = row.start + frac(Math.min(x0, ev.clientX)) * 3600, b = row.start + frac(Math.max(x0, ev.clientX)) * 3600;
+    tlRange = { from: a, to: b }; paintRange();
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up);
+    if (dragging) { suppressClick = true; selectRange(); }
+  };
+  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
+}
+function extendRange(row, e) {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const ts = row.start + Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 3600;
+  tlRange = { from: Math.min(tlRange.from, ts), to: Math.max(tlRange.to, ts) };
+  paintRange(); selectRange();
+}
+function paintRange() {
+  document.querySelectorAll(".tl-row .rsel").forEach((x) => x.remove());
+  if (!tlRange) return;
+  for (const track of document.querySelectorAll(".tl-row .track")) {
+    const start = dayStart() + Number(track.dataset.hour) * 3600, end = start + 3600;
+    const a = Math.max(tlRange.from, start), b = Math.min(tlRange.to, end);
+    if (b <= a) continue;
+    track.insertAdjacentHTML("beforeend", `<div class="rsel" style="left:${((a - start) / 3600) * 100}%;width:${((b - a) / 3600) * 100}%"></div>`);
+  }
+}
+const dayStart = () => new Date(day + "T00:00:00").getTime() / 1000;
+async function selectRange() {
+  if (!tlRange) return;
+  document.querySelectorAll(".tl-row .seg.on, .tl-row .marker, .tl-row .marker-label").forEach((x) => x.classList ? x.classList.remove("on") : 0);
+  document.querySelectorAll(".tl-row .marker, .tl-row .marker-label").forEach((m) => m.remove());
+  stripBlock = null;
+  stripItems = dayFrames.filter((o) => o.ts >= tlRange.from && o.ts <= tlRange.to).slice(0, 200);
+  await loadIcons(stripItems);
+  tlSelected = stripItems[0] || null;
+  renderSelection(); renderStrip();
+}
+function renderSelection() {
+  const el = $("#tlsel");
+  if (!tlRange) { el.hidden = true; el.innerHTML = ""; return; }
+  const n = dayFrames.filter((o) => o.ts >= tlRange.from && o.ts <= tlRange.to).length;
+  el.hidden = false;
+  el.innerHTML = `<span>Selected <b>${hhmm(tlRange.from)}–${hhmm(tlRange.to)}</b>: ${n} ${n === 1 ? "memory" : "memories"}</span><span class="btn small" id="clearsel" role="button">Clear</span>`;
+  $("#clearsel").onclick = clearSelection;
+}
+function clearSelection() { tlRange = null; stripItems = []; stripBlock = null; tlSelected = null; paintRange(); renderSelection(); renderStrip(); }
+// From the window agent: a day, an hour to zoom into, a span to select.
+async function applyTimeline(p) {
+  show("timeline");
+  const today = dayISO(new Date());
+  let iso = p.day ? String(p.day) : day;
+  if (iso === "today") iso = today;
+  if (iso === "yesterday") { const d = new Date(); d.setDate(d.getDate() - 1); iso = dayISO(d); }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) iso = day;
+  gotoDay(iso);
+  zoomHour = p.hour !== null && p.hour !== undefined ? Math.max(0, Math.min(23, Number(p.hour))) : null;
+  await loadDay();
+  const t = (hm) => { const m = /^(\d{1,2}):?(\d{2})?$/.exec(String(hm || "")); return m ? dayStart() + Number(m[1]) * 3600 + Number(m[2] || 0) * 60 : null; };
+  const a = t(p.from), b = t(p.to);
+  if (a !== null || b !== null) { tlRange = { from: a ?? dayStart(), to: b ?? dayStart() + 86399 }; if (tlRange.to < tlRange.from) [tlRange.from, tlRange.to] = [tlRange.to, tlRange.from]; paintRange(); await selectRange(); }
 }
 let dayTracks = null;
 let stripItems = [];     // the clicked block's memories, oldest first
@@ -690,6 +886,7 @@ async function scrub(row, e) {
   });
   document.querySelectorAll(".tl-row .seg.on").forEach((x) => x.classList.remove("on"));
   track.querySelector(`.seg[data-key="${seg.from}"]`)?.classList.add("on");
+  if (tlRange) { tlRange = null; paintRange(); renderSelection(); }
   stripBlock = seg;
   stripItems = await call("get", { ids: seg.ids.slice(0, 200) });
   stripItems.sort((a, b) => a.ts - b.ts);
@@ -702,24 +899,28 @@ async function scrub(row, e) {
   track.insertAdjacentHTML("beforeend", `<div class="marker" style="left:${x}%"></div><div class="marker-label" style="left:${x}%">${hhmmss(nearest.ts)}</div>`);
   renderStrip();
 }
+const STRIP_A11Y_MAX = 24;
 function renderStrip() {
   const strip = $("#tlstrip"); strip.hidden = !stripItems.length; strip.innerHTML = "";
-  for (const o of stripItems) {
+  strip.setAttribute("aria-label", stripItems.length > STRIP_A11Y_MAX ? `Selected memories, first ${STRIP_A11Y_MAX} of ${stripItems.length}` : "Selected memories");
+  stripItems.forEach((o, index) => {
     const f = document.createElement("div"); f.className = "frame" + (tlSelected && o.id === tlSelected.id ? " on" : "");
     f.innerHTML = `<div class="img">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
       <div class="t">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b></div><div class="when">${hhmmss(o.ts)}</div>`;
     f.title = o.title || "";
     f.setAttribute("role", "button"); f.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmmss(o.ts)}: ${brief(o.title || o.content, 80)}`); f.setAttribute("aria-selected", tlSelected && o.id === tlSelected.id ? "true" : "false");
     for (const c of f.children) c.setAttribute("data-a11y-exclude", "");
-    f.onclick = () => { tlSelected = o; renderStrip(); };
+    if (index >= STRIP_A11Y_MAX && !(tlSelected && tlSelected.id === o.id)) f.setAttribute("data-a11y-exclude", "");
+    f.onclick = () => { if (tlSelected && tlSelected.id === o.id) { openStrip(); return; } tlSelected = o; renderStrip(); };
     f.ondblclick = () => openStrip();
     strip.appendChild(f);
-  }
+  });
   const on = strip.querySelector(".frame.on"); if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
   const o = tlSelected; if (!o) { $("#preview").hidden = true; return; }
   const others = stripBlock ? Object.entries(stripBlock.apps).filter(([a]) => a !== stripBlock.app).map(([a, n]) => `${a} ${n}`) : [];
   const mix = stripBlock ? `mostly ${stripBlock.app}${others.length ? ` · also ${others.join(", ")}` : ""}` : "";
-  renderPreview(o, `${stripItems.length} in this block · ${mix}`, () => openStrip());
+  const note = tlRange ? `${stripItems.length} between ${hhmm(tlRange.from)} and ${hhmm(tlRange.to)}` : `${stripItems.length} in this block · ${mix}`;
+  renderPreview(o, note, () => openStrip());
 }
 function renderPreview(o, note, onOpen) {
   const p = $("#preview"); p.hidden = false;
@@ -729,8 +930,8 @@ function renderPreview(o, note, onOpen) {
   p.querySelector(".thumb").onclick = onOpen;
 }
 function openStrip() { if (tlSelected) openViewer(tlSelected, stripItems.length > 1 ? stripItems : undefined); }
-$("#prevday").onclick = () => { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() - 1); day = dayISO(d); loadDay(); };
-$("#nextday").onclick = () => { if (day === dayISO(new Date())) return; const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + 1); day = dayISO(d); loadDay(); };
+$("#prevday").onclick = () => shiftDay(-1);
+$("#nextday").onclick = () => shiftDay(1);
 
 // ---- watchers ---------------------------------------------------------
 const TRASH = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>`;

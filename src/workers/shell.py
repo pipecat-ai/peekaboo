@@ -314,6 +314,10 @@ class ShellWorker(BaseUIWorker):
         await self.pause(bool(paused))
         return {"paused": self._paused}
 
+    async def _rpc_month(self, year: int, month: int):
+        """Memories per day in a month, for the timeline's calendar."""
+        return {"year": int(year), "month": int(month), "days": await self._store.month_counts(int(year), int(month))}
+
     async def _rpc_day_tracks(self, date: str):
         """The day in one-minute cells. Per hour: the count, and for each
         minute with memories ``{minute, app, apps, ids}``, where ``app`` is the
