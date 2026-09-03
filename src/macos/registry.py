@@ -31,6 +31,10 @@ POLL_INTERVAL_SECS = 1.0
 # What our own process is called in lists, until there is a bundle.
 OWN_APP_NAME = "Peekaboo"
 
+# Notification Center draws banners in one display-sized window that is on
+# screen only while a banner shows. Captured alone, it holds just the banner.
+NOTIFICATION_BUNDLE = "com.apple.notificationcenterui"
+
 # Windows smaller than this in points are helpers (cursor, autofill, text
 # input popups run 64x64), not content.
 MIN_WINDOW_SIZE = 100
@@ -304,6 +308,7 @@ class WindowRegistry:
         self._windows: dict[int, Window] = {}
         self._apps: dict[int, App] = {}
         self._sc_windows: dict[int, object] = {}
+        self._banners: list = []
         self._sc_apps: dict[int, object] = {}
         self._displays: list = []
         self._listeners: list[Callable[[RegistryEvent], None]] = []
@@ -314,6 +319,12 @@ class WindowRegistry:
     @property
     def own_pid(self) -> int:
         return self._own_pid
+
+    @property
+    def banner_windows(self) -> list:
+        """``SCWindow`` objects of Notification Center that are on screen: a
+        banner is showing in each."""
+        return list(self._banners)
 
     @property
     def windows(self) -> list[Window]:
@@ -441,6 +452,13 @@ class WindowRegistry:
         }
         self._sc_windows = {wid: sc_windows[wid] for wid in new}
         self._sc_apps = sc_apps
+        self._banners = [
+            w
+            for w in content.windows()
+            if w.isOnScreen()
+            and w.owningApplication() is not None
+            and str(w.owningApplication().bundleIdentifier() or "") == NOTIFICATION_BUNDLE
+        ]
 
         for event in events:
             logger.debug(f"registry: {event}")

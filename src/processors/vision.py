@@ -29,8 +29,10 @@ ANALYSIS_TIMEOUT_SECS = 45.0
 
 # A target is analysed at most this often however fast it changes.
 MIN_ANALYSIS_INTERVAL_SECS = 15.0
-# The screen still is context; the screen-wide watchlist is checked on it this often.
+# The screen still is context; when a watcher targets the screen it is checked this often.
 SCREEN_ANALYSIS_INTERVAL_SECS = 30.0
+# A banner is short-lived: read it as soon as it appears.
+BANNER_ANALYSIS_INTERVAL_SECS = 3.0
 
 
 @dataclass(frozen=True)
@@ -159,7 +161,18 @@ class VisionImageProcessor(FrameProcessor):
         self._schedule_flush()
 
     def _interval_for(self, frame: ScreenFrame) -> float:
-        return SCREEN_ANALYSIS_INTERVAL_SECS if frame.role == "screen" else MIN_ANALYSIS_INTERVAL_SECS
+        if frame.role == "screen":
+            return SCREEN_ANALYSIS_INTERVAL_SECS
+        if frame.role == "banner":
+            return BANNER_ANALYSIS_INTERVAL_SECS
+        return MIN_ANALYSIS_INTERVAL_SECS
+
+    @property
+    def analyses_screen(self) -> bool:
+        """Whether screen stills are analysed at all: only when a watcher
+        targets the screen. Notifications are read from their banner, and
+        the windows carry the content."""
+        return any(item.target == "screen" for item in self._watchlist.values())
 
     def _due_in(self, frame: ScreenFrame) -> float:
         """Seconds until this target may be analysed again; 0 if now."""
@@ -225,6 +238,8 @@ class VisionImageProcessor(FrameProcessor):
 
     async def _handle_screen_frame(self, frame: ScreenFrame):
         if not frame.changed:
+            return
+        if frame.role == "screen" and not self.analyses_screen:
             return
         if self.busy or self._due_in(frame) > 0:
             # Newest frame per target waits; it goes when the model is idle

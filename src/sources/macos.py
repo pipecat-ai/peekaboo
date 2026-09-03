@@ -27,6 +27,9 @@ from sources.base import BaseFrameSource, Resolved
 
 SCREEN_TARGET = "screen"
 WINDOW_PREFIX = "window:"
+# Notification banners, cropped out of Notification Center's own window.
+BANNER_TARGET = "banner"
+BANNER_MIN_SIZE = 40
 
 # The display is captured wider than a window would be, so text stays
 # legible after the whole screen is scaled down.
@@ -187,6 +190,48 @@ class ScreenCaptureSource(BaseFrameSource):
             t0 = time.monotonic()
             await asyncio.gather(*(self._still(t, moment=moment, skip_blank=True) for t in targets))
             logger.trace(f"{self}: {len(targets)} window stills in {(time.monotonic() - t0) * 1000:.0f} ms")
+        await self._banner_still(moment)
+
+    async def _banner_still(self, moment: int):
+        """A notification banner, while one is up: Notification Center's
+        window captured alone and cropped to the lit part. Cheap to analyse,
+        and it means the screen itself need not be read for reminders."""
+        banners = self._registry.banner_windows
+        if not banners or BANNER_TARGET in self._busy:
+            return
+        self._busy.add(BANNER_TARGET)
+        try:
+            sc_window = banners[0]
+            frame = sc_window.frame()
+            filter = window_filter(sc_window)
+            config = stream_configuration(filter, max_width=int(frame.size.width))
+            image = await take_still(filter, config)
+        except Exception as e:  # noqa: BLE001 - a banner missed is not fatal
+            logger.debug(f"{self}: banner still failed: {e}")
+            return
+        finally:
+            self._busy.discard(BANNER_TARGET)
+        lit = image.convert("L").point(lambda v: 255 if v > 12 else 0).getbbox()
+        if not lit or lit[2] - lit[0] < BANNER_MIN_SIZE or lit[3] - lit[1] < BANNER_MIN_SIZE:
+            return
+        pad = 8
+        box = (max(0, lit[0] - pad), max(0, lit[1] - pad), min(image.width, lit[2] + pad), min(image.height, lit[3] + pad))
+        crop = image.crop(box)
+        # Points per pixel: the still is the window's own size, so one to one.
+        scale = frame.size.width / image.width if image.width else 1.0
+        rect = tuple(int(v * scale) for v in (box[0] + frame.origin.x, box[1] + frame.origin.y, box[2] - box[0], box[3] - box[1]))
+        await self.push_frame(
+            ScreenFrame(
+                target=BANNER_TARGET,
+                image=crop,
+                timestamp=int(time.time()),
+                app="Notification Center",
+                title="notification",
+                role="banner",
+                moment=moment,
+                rect=rect,
+            )
+        )
 
     async def capture_now(self, target: str):
         # A look wants the picture as it is right now, watched or not.
