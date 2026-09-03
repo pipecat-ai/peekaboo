@@ -124,6 +124,11 @@
   .side-panel { width: 320px; flex-shrink: 0; border-left: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 18px; padding: 20px; overflow-y: auto; }
   .side-panel .block { display: flex; flex-direction: column; gap: 4px; }
   .side-panel .window { font-weight: 500; line-height: 1.4; }
+  .side-panel .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .side-panel .chips .chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 12px; border: 1px solid var(--line-strong); font-size: 12px; max-width: 100%; }
+  .side-panel .chips .chip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  .side-panel .chips .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .side-panel .chips .chip .appicon { width: 14px; height: 14px; border-radius: 3px; }
   .side-panel .desc { color: var(--text-2); line-height: 1.5; user-select: text; }
   .side-panel .verb { font: 11.5px/1.6 var(--mono); color: var(--verb); display: flex; flex-direction: column; gap: 2px; user-select: text; }
   .side-panel .verb div { word-break: break-all; }
@@ -327,6 +332,7 @@
     <div class="stage-row">
       <div class="stage" id="stage" role="img" aria-label="No memory open"><div class="none">Pick a memory</div></div>
       <div class="side-panel">
+        <div class="block" id="vwinsblock" hidden role="region" aria-label="Windows in this moment"><div class="eyebrow" data-a11y-exclude>Windows in this moment</div><div class="chips" id="vwins"></div></div>
         <div class="block" role="region" aria-label="Window"><div class="eyebrow" data-a11y-exclude>Window</div><div class="window" id="vwindow"></div></div>
         <div class="block" role="region" aria-label="What was on screen"><div class="eyebrow" data-a11y-exclude>What was on screen</div><div class="desc" id="vdesc"></div></div>
         <div class="block" id="vverbblock" data-a11y-exclude><div class="eyebrow">Verbatim text</div><div class="verb" id="vverb"></div></div>
@@ -624,6 +630,19 @@ function render() {
     $("#stage").setAttribute("aria-label", `Screenshot of ${o.app || "the screen"}${o.title ? ` (${o.title})` : ""} at ${whenLabel(o.ts)}`);
   }
   $("#vwindow").textContent = moment ? `${o.app || "Screen"}${o.title ? ` · ${o.title}` : ""}` : (o.title || "—");
+  // Every window of the moment as a chip, so covered ones can be picked too.
+  $("#vwinsblock").hidden = !(moment && moment.windows.length > 1);
+  if (moment) {
+    const chips = $("#vwins"); chips.innerHTML = "";
+    for (const w of moment.windows) {
+      const c = document.createElement("span"); c.className = "chip" + (w.id === o.id ? " on" : "");
+      c.innerHTML = `${appIcon(w.app)}<span>${esc(w.app || "Window")}${w.title ? ` · ${esc(brief(w.title, 40))}` : ""}</span>`;
+      c.setAttribute("role", "button"); c.setAttribute("aria-label", `${w.app || "Window"}${w.title ? `: ${w.title}` : ""}`); c.setAttribute("aria-selected", w.id === o.id ? "true" : "false");
+      for (const ch of c.children) ch.setAttribute("data-a11y-exclude", "");
+      c.onclick = () => selectWindow(w);
+      chips.appendChild(c);
+    }
+  }
   $("#vdesc").innerHTML = hi(o.content);
   const verb = o.verbatim_text || [];
   $("#vverbblock").hidden = !verb.length;
