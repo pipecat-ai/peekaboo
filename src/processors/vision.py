@@ -142,6 +142,8 @@ class VisionImageProcessor(FrameProcessor):
         # What each target showed last time it was described, so conditions
         # about change ("new messages", "finished") can be judged.
         self._previous: Dict[str, str] = {}
+        # Frame keys already described before this session, per target.
+        self._known: Dict[str, str] = {}
         self._flush_task: Optional[asyncio.Task] = None
 
         # Fired with the analysis dict of a frame that matched watchlist items.
@@ -179,6 +181,16 @@ class VisionImageProcessor(FrameProcessor):
         """Keep a target's latest description for the next analysis."""
         if content:
             self._previous[target] = content
+
+    def seed(self, known: Dict[str, tuple[str, str]]):
+        """What the store already holds per target: the last analysed frame's
+        key and description. The first frame of a target after a restart is
+        skipped when it is that same frame, and the description carries over."""
+        for target, (key, content) in known.items():
+            if key:
+                self._known[target] = key
+            if content:
+                self._previous[target] = content
 
     def take_last_sent(self) -> Optional[SentFrame]:
         """The frame most recently sent to the model, once."""
@@ -270,6 +282,10 @@ class VisionImageProcessor(FrameProcessor):
         if not frame.changed:
             return
         if frame.role == "screen" and not self.analyses_screen:
+            return
+        known = self._known.pop(frame.target, None)
+        if known is not None and known == frame.key and not frame.priority:
+            logger.debug(f"{self}: {frame.target} is the frame described before the restart, skipped")
             return
         if self.busy or (self._due_in(frame) > 0 and not frame.priority):
             # Newest frame per target waits; it goes when the model is idle

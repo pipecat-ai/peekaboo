@@ -281,3 +281,46 @@ def test_gate_counts_a_priority_frame_as_changed():
     for f in (first, same, retitled):
         gate._annotate(f)
     assert first.changed and not same.changed and retitled.changed
+
+
+def test_processor_skips_the_frame_described_before_a_restart(tmp_path):
+    import asyncio
+
+    from PIL import Image
+
+    from processors.frames import ScreenFrame
+    from processors.gate import ChangeGate
+    from processors.vision import VisionImageProcessor
+    from store.models import Observation
+    from store.sqlite_store import SQLiteStore
+
+    async def go():
+        store = SQLiteStore(root=tmp_path)
+        await store.open()
+        try:
+            import time
+
+            now = int(time.time())
+            img = Image.new("RGB", (640, 400), "white")
+            gate = ChangeGate()
+            frame = ScreenFrame(target="window:9", image=img, timestamp=now)
+            gate._annotate(frame)
+            await store.add(Observation(timestamp=now, target="window:9", content="a white window", frame_hash=frame.key, app="X"))
+            known = await store.last_frames()
+            assert known["window:9"] == (frame.key, "a white window")
+            proc = VisionImageProcessor(system_instruction="x")
+            proc.seed(known)
+            sent = []
+            proc._send = lambda f: sent.append(f) or asyncio.sleep(0)
+            again = ScreenFrame(target="window:9", image=img.copy(), timestamp=2)
+            ChangeGate()._annotate(again)
+            await proc._handle_screen_frame(again)
+            assert sent == [] and proc._previous["window:9"] == "a white window"
+            changed = ScreenFrame(target="window:9", image=Image.new("RGB", (640, 400), "black"), timestamp=3)
+            ChangeGate()._annotate(changed)
+            await proc._handle_screen_frame(changed)
+            assert len(sent) == 1
+        finally:
+            await store.close()
+
+    asyncio.run(go())

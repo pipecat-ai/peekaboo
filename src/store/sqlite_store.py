@@ -418,6 +418,24 @@ class SQLiteStore:
         ).fetchall()
         return [_row_to_observation(r) for r in rows]
 
+    async def last_frames(self, since_days: int = 2) -> dict[str, tuple[str, str]]:
+        """Per target, the newest analysed frame's hash and description, for
+        a restart to pick up where it left off instead of re-describing
+        every window."""
+        cutoff = int((datetime.now() - timedelta(days=since_days)).timestamp())
+        return await self._run(self._last_frames_sync, cutoff)
+
+    def _last_frames_sync(self, cutoff: int) -> dict[str, tuple[str, str]]:
+        rows = self._db.execute(
+            """
+            SELECT target, frame_hash, content FROM observations o
+            WHERE kind = 'description' AND frame_hash IS NOT NULL AND ts >= ?
+              AND id = (SELECT MAX(id) FROM observations WHERE target = o.target AND kind = 'description' AND frame_hash IS NOT NULL)
+            """,
+            (cutoff,),
+        ).fetchall()
+        return {r["target"]: (r["frame_hash"], r["content"] or "") for r in rows}
+
     async def moment(self, moment: int) -> list[Observation]:
         """Everything captured in one recording tick: the screen still and the
         window frames analysed from it."""

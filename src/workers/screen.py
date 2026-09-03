@@ -386,6 +386,15 @@ class ScreenWorker(PipelineWorker):
         if self._restored:
             return
         self._restored = True
+        # Pick up where the last session left off: windows still showing the
+        # frame described then are not described again, and their last
+        # description is the "previous" for watch conditions.
+        try:
+            known = await self._store.last_frames()
+            self._image_processor.seed(known)
+            logger.info(f"{self}: seeded {len(known)} window(s) from the store")
+        except Exception as e:  # noqa: BLE001 - a cold start is fine
+            logger.warning(f"{self}: could not seed from the store: {e}")
         path = self._store.root / WATCHERS_FILE
         try:
             saved = json.loads(path.read_text())
