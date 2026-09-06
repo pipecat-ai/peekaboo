@@ -14,3 +14,6 @@ wheels/
 db/
 # eval bot logs
 evals/logs/
+
+# macOS Finder metadata
+.DS_Store
