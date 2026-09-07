@@ -441,11 +441,12 @@ class VoiceWorker(PipelineWorker):
         connected only while the gate is awake. Cartesia speaks over HTTP in
         cloud mode; in local mode Kokoro speaks and nothing is ever connected.
         """
-        # With a cloud recognizer behind it, audio passes through Moonshine
-        # so that one can hear too, once awake. The gate comes last and sees
-        # every recognizer's transcripts.
+        # Audio passes through Moonshine: the user aggregator's VAD and turn
+        # detection run on what reaches it, and a cloud recognizer behind
+        # Moonshine hears through it too, once awake. The gate comes last and
+        # sees every recognizer's transcripts.
         cloud_stt = self._stt == "deepgram"
-        stage: list[FrameProcessor] = [LocalMoonshineSTTService(audio_passthrough=cloud_stt)]
+        stage: list[FrameProcessor] = [LocalMoonshineSTTService(audio_passthrough=True)]
         if cloud_stt:
             self._cloud_stt = OnDemandDeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
             stage.append(self._cloud_stt)
