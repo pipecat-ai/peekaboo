@@ -29,8 +29,6 @@ ANALYSIS_TIMEOUT_SECS = 45.0
 
 # A target is analysed at most this often however fast it changes.
 MIN_ANALYSIS_INTERVAL_SECS = 15.0
-# The screen still is context; when a watcher targets the screen it is checked this often.
-SCREEN_ANALYSIS_INTERVAL_SECS = 30.0
 # A banner is short-lived: read it as soon as it appears.
 BANNER_ANALYSIS_INTERVAL_SECS = 3.0
 # The changed region is sent enlarged when it is a small part of the frame.
@@ -135,10 +133,10 @@ class VisionImageProcessor(FrameProcessor):
 
     Cost is bounded per target: a window is analysed at most once every
     ``MIN_ANALYSIS_INTERVAL_SECS`` however often it changes (a video, a
-    scrolling log), and the screen still, which is context now that the
-    windows carry the content, at most once every
-    ``SCREEN_ANALYSIS_INTERVAL_SECS`` so the screen-wide watchlist still sees
-    it. A frame that arrives too early waits and is replaced by newer ones.
+    scrolling log). A frame that arrives too early waits and is replaced by
+    newer ones. The screen still is never analysed: it is the picture of the
+    moment, and the windows on it carry the content; a watch item with no
+    target is checked against every window and banner instead.
     """
 
     def __init__(self, *, system_instruction: str, watchlist: Optional[List[WatchItem]] = None):
@@ -216,18 +214,9 @@ class VisionImageProcessor(FrameProcessor):
         self._schedule_flush()
 
     def _interval_for(self, frame: ScreenFrame) -> float:
-        if frame.role == "screen":
-            return SCREEN_ANALYSIS_INTERVAL_SECS
         if frame.role == "banner":
             return BANNER_ANALYSIS_INTERVAL_SECS
         return MIN_ANALYSIS_INTERVAL_SECS
-
-    @property
-    def analyses_screen(self) -> bool:
-        """Whether screen stills are analysed at all: only when a watcher
-        targets the screen. Notifications are read from their banner, and
-        the windows carry the content."""
-        return any(item.target == "screen" for item in self._watchlist.values())
 
     def _due_in(self, frame: ScreenFrame) -> float:
         """Seconds until this target may be analysed again; 0 if now."""
@@ -294,7 +283,9 @@ class VisionImageProcessor(FrameProcessor):
     async def _handle_screen_frame(self, frame: ScreenFrame):
         if not frame.changed:
             return
-        if frame.role == "screen" and not self.analyses_screen:
+        if frame.role == "screen":
+            # The picture of the moment, kept as it is; its windows are
+            # described one by one and notifications come as banners.
             return
         known = self._known.pop(frame.target, None)
         if known is not None and known == frame.key and not frame.priority:

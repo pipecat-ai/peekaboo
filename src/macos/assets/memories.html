@@ -410,7 +410,7 @@
           <div class="eyebrow">Watch</div>
           <div class="filter"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9A9AA0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="wfilter" placeholder="Filter apps and windows"></div>
           <div class="picker" id="picker"></div>
-          <div class="hint" id="wtarget">Watching the whole screen.</div>
+          <div class="hint" id="wtarget">Watching every window, and notifications.</div>
         </div>
         <div class="field"><div class="eyebrow">Tell me when</div><textarea id="wcond" placeholder="the build finishes or fails"></textarea></div>
         <button class="btn primary start" id="startwatch">Start watching</button>
@@ -1150,8 +1150,8 @@ function renderPicker() {
   const p = $("#picker"); p.innerHTML = "";
   if (!pickerSel) pickerSel = { screen: true };
   const screenSel = !!pickerSel.screen;
-  if (!f || "the whole screen".includes(f)) {
-    p.insertAdjacentHTML("beforeend", `<div class="win screen${screenSel ? " sel" : ""}" data-screen="1">${appIcon("Screen")}<span>The whole screen</span><span class="n mono">everything visible</span></div>`);
+  if (!f || "every window".includes(f)) {
+    p.insertAdjacentHTML("beforeend", `<div class="win screen${screenSel ? " sel" : ""}" data-screen="1">${appIcon("Screen")}<span>Every window</span><span class="n mono">everything visible</span></div>`);
   }
   for (const a of pickerData) {
     const wins = a.windows.filter((w) => !f || a.app.toLowerCase().includes(f) || w.title.toLowerCase().includes(f));
@@ -1161,11 +1161,11 @@ function renderPicker() {
   }
   p.querySelectorAll(".win").forEach((el) => {
     el.setAttribute("role", "button");
-    el.setAttribute("aria-label", el.dataset.screen ? "The whole screen" : `${el.dataset.app} window: ${el.dataset.title}`);
+    el.setAttribute("aria-label", el.dataset.screen ? "Every window" : `${el.dataset.app} window: ${el.dataset.title}`);
     el.setAttribute("aria-selected", el.classList.contains("sel") ? "true" : "false");
     el.onclick = () => { pickerSel = el.dataset.screen ? { screen: true } : { app: el.dataset.app, title: el.dataset.title, id: el.dataset.id }; renderPicker(); };
   });
-  $("#wtarget").textContent = screenSel ? "Watching the whole screen." : `Watching ${pickerSel.app}: “${pickerSel.title || "(untitled)"}”. Follows ${pickerSel.app} if that window closes.`;
+  $("#wtarget").textContent = screenSel ? "Watching every window, and notifications." : `Watching ${pickerSel.app}: “${pickerSel.title || "(untitled)"}”. Follows ${pickerSel.app} if that window closes.`;
   $("#wcond").placeholder = screenSel ? "the build finishes or fails" : `something happens in ${pickerSel.app}: new messages, a reply, an error…`;
 }
 $("#wfilter").addEventListener("input", renderPicker);

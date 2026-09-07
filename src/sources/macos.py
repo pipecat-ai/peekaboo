@@ -24,8 +24,9 @@ from macos.capture import (
 from macos.registry import EventKind, RegistryEvent, Window, WindowRegistry
 from processors.frames import ScreenFrame
 from sources.base import BaseFrameSource, Resolved
+from sources.base import SCREEN_TARGET as BASE_SCREEN_TARGET
 
-SCREEN_TARGET = "screen"
+SCREEN_TARGET = BASE_SCREEN_TARGET
 WINDOW_PREFIX = "window:"
 # Notification banners, cropped out of Notification Center's own window.
 BANNER_TARGET = "banner"
@@ -110,7 +111,7 @@ class ScreenCaptureSource(BaseFrameSource):
     def resolve(self, text: Optional[str]) -> Resolved:
         query = (text or "").strip()
         if query.lower() in SCREEN_WORDS:
-            return Resolved(SCREEN_TARGET, "the screen", exact=True)
+            return Resolved(SCREEN_TARGET, "every window", exact=True)
 
         window = self._registry.find_window(query)
         if window is None:
@@ -118,7 +119,7 @@ class ScreenCaptureSource(BaseFrameSource):
             if app is not None:
                 window = self._front_window_of(app.pid)
         if window is None:
-            return Resolved(SCREEN_TARGET, "the screen", exact=False)
+            return Resolved(SCREEN_TARGET, "every window", exact=False)
         return Resolved(self._target_for(window), self._label_for(window), exact=True)
 
     def window_for(self, target: str) -> Optional[Window]:
@@ -127,7 +128,7 @@ class ScreenCaptureSource(BaseFrameSource):
 
     def label(self, target: str) -> str:
         if target == SCREEN_TARGET:
-            return "the screen"
+            return "every window"
         window = self._window_for(target)
         return self._label_for(window) if window else "that window"
 

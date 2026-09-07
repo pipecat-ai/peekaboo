@@ -18,6 +18,9 @@ from processors.frames import CaptureRequestFrame
 # How often the source asks for a frame of each polled target while capturing.
 CAPTURE_INTERVAL_SECS = 2.0
 
+# The target that is the display itself, as opposed to one window.
+SCREEN_TARGET = "screen"
+
 
 @dataclass(frozen=True)
 class Resolved:

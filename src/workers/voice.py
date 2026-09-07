@@ -124,7 +124,7 @@ separately, after your turn.
 
 Targets: when the user names a window or an app ("the terminal", "Chrome",
 "the build window"), pass what they said as the target. Leave the target empty
-for the whole screen. [list_windows] tells you what is open.
+to watch every window and notification. [list_windows] tells you what is open.
 
 Tool-use rules:
 
@@ -511,7 +511,7 @@ class VoiceWorker(PipelineWorker):
             "type": "string",
             "description": (
                 "The window or app the user named, in their words: 'the terminal', 'Chrome', "
-                "part of a window title. Empty for the whole screen."
+                "part of a window title. Empty to watch every window and notification."
             ),
         }
 

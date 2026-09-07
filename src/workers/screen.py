@@ -30,7 +30,7 @@ from processors.frames import ScreenFrame
 from processors.gate import ChangeGate
 from processors.screen_bridge import SCREEN_BRIDGE
 from processors.vision import VisionImageContextProcessor, VisionImageProcessor, WatchItem
-from sources.base import CAPTURE_INTERVAL_SECS, BaseFrameSource
+from sources.base import CAPTURE_INTERVAL_SECS, SCREEN_TARGET, BaseFrameSource
 from sources.transport import TransportScreenSource
 from store.models import Observation
 from store.sqlite_store import SQLiteStore
@@ -56,8 +56,12 @@ NOTIFICATION_WATCH = WatchItem(
         "Not deliveries, orders, shipping, news, and not an email or a chat message "
         "that merely mentions an event: only a reminder that has popped up."
     ),
-    target=("banner", "screen"),
+    target="banner",
 )
+
+# One watcher may match the same event twice, once from a window changing
+# and once from its banner; after a hit it stays quiet this long.
+HIT_COOLDOWN_SECS = 60.0
 
 
 def _split_wanted(wanted: str) -> tuple[str, str]:
@@ -256,6 +260,7 @@ class ScreenWorker(PipelineWorker):
         self._analyses: deque[float] = deque()
         self._stale_timers: dict[str, asyncio.Task] = {}
         self._stale_announced: set[str] = set()
+        self._last_hit: dict[int, float] = {}
         self._analyses_total = 0
         self._image_processor = VisionImageProcessor(
             system_instruction=IMAGE_SYSTEM_INSTRUCTION, watchlist=[NOTIFICATION_WATCH]
@@ -380,7 +385,7 @@ class ScreenWorker(PipelineWorker):
         if wanted and not resolved.exact:
             await self.send_job_update(
                 message.job_id,
-                {"say": f"I couldn't find {wanted}, so I'm watching the whole screen for that."},
+                {"say": f"I couldn't find {wanted}, so I'm watching every window for that."},
                 urgent=True,
             )
 
@@ -429,8 +434,15 @@ class ScreenWorker(PipelineWorker):
         self._next_watcher_id += 1
         self._watchers[watcher.id] = watcher
         if enabled:
-            self._image_processor.add_watch(WatchItem(id=watcher.id, query=query, target=resolved.target))
+            self._image_processor.add_watch(self._watch_item(watcher))
         return watcher, resolved
+
+    @staticmethod
+    def _watch_item(watcher: Watcher) -> WatchItem:
+        """A watcher on the screen is checked against every window and
+        banner as they are described; the screen still itself is not read."""
+        target = None if watcher.target == SCREEN_TARGET else watcher.target
+        return WatchItem(id=watcher.id, query=watcher.query, target=target)
 
     def _resolve(self, target_text: str, app_hint: str, title_hint: str):
         """The target as asked; failing that, the window with that title, then
@@ -469,7 +481,7 @@ class ScreenWorker(PipelineWorker):
         watcher.window_title = window.title
         watcher.waiting = False
         if watcher.enabled:
-            self._image_processor.add_watch(WatchItem(id=watcher.id, query=watcher.query, target=target))
+            self._image_processor.add_watch(self._watch_item(watcher))
         self._gate.reset(target)
         logger.info(f"{self}: watcher {watcher.id} re-attached to {watcher.label}")
         await self.send_job_update(watcher.job_id, {"warning": f"{watcher.app} is back; I'm watching {watcher.label} again."}, urgent=True)
@@ -569,7 +581,7 @@ class ScreenWorker(PipelineWorker):
                 return
             watcher.enabled = enabled
             if enabled:
-                self._image_processor.add_watch(WatchItem(id=watcher.id, query=watcher.query, target=watcher.target))
+                self._image_processor.add_watch(self._watch_item(watcher))
             else:
                 self._image_processor.remove_watch(watcher.id)
         logger.debug(f"{self}: watcher {watcher_id} {'enabled' if enabled else 'disabled'}")
@@ -759,6 +771,11 @@ class ScreenWorker(PipelineWorker):
                 continue
             watcher = self._watchers.get(item_id)
             if watcher and text:
+                now = time.monotonic()
+                if now - self._last_hit.get(watcher.id, -HIT_COOLDOWN_SECS) < HIT_COOLDOWN_SECS:
+                    logger.debug(f"{self}: watcher {watcher.id} hit again within the cooldown, not repeated")
+                    continue
+                self._last_hit[watcher.id] = now
                 key = "hit" if watcher.restored else "say"
                 await self.send_job_update(watcher.job_id, {key: text}, urgent=True)
 
