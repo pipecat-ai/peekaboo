@@ -5,8 +5,8 @@ description = "A voice assistant for your on-screen content"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    # Stable release. Speech is Deepgram and Cartesia by default, or Moonshine
-    # and Kokoro on the machine with --local-speech.
+    # Moonshine hears, Cartesia speaks by default; Kokoro speaks with
+    # --local-speech, and Deepgram hears with --stt deepgram.
     "pipecat-ai[anthropic,cartesia,daily,deepgram,kokoro,moonshine,runner,silero,webrtc]==1.8.1",
     # The macOS capture and audio layers. Marked so a Linux checkout still
     # resolves; nothing outside src/macos/ and spikes/ imports these.

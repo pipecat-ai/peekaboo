@@ -86,11 +86,16 @@ GREETING = "Welcome to Peekaboo."
 MAX_LISTED_WINDOWS = 25
 
 # Where speech runs. Recognition always starts on the machine: Moonshine hears
-# everything and only what follows the wake phrase goes further. "cloud" then
-# connects Deepgram for the conversation and speaks through Cartesia over
-# HTTP, a request per utterance, so nothing is connected while idle. "local"
-# stays on the machine throughout, with Kokoro speaking.
+# everything and only what follows the wake phrase goes further. "cloud"
+# speaks through Cartesia over HTTP, a request per utterance, so nothing is
+# connected while idle. "local" stays on the machine throughout, with Kokoro
+# speaking.
 SpeechServices = Literal["cloud", "local"]
+
+# Who hears the conversation once awake. "moonshine": the same local
+# recognizer, a segment per utterance. "deepgram": a streaming recognizer
+# connected on wake and dropped on sleep, kept for comparison.
+Recognizer = Literal["moonshine", "deepgram"]
 
 # Spoken when the wake phrase comes alone.
 WAKE_ACK = "Yes?"
@@ -354,6 +359,7 @@ class VoiceWorker(PipelineWorker):
         screen_from_transport: bool = True,
         open_links: bool = True,
         speech: SpeechServices = "cloud",
+        stt: Recognizer = "moonshine",
         registry: Optional["WindowRegistry"] = None,
         on_state: Optional[Callable[[str], None]] = None,
         on_show: Optional[Callable[[list[int]], None]] = None,
@@ -376,6 +382,7 @@ class VoiceWorker(PipelineWorker):
         self._ui_worker = ui_worker
         self._open_links = open_links
         self._speech = speech
+        self._stt = stt
         self._registry = registry
         self._on_show = on_show
         self._on_asked = on_asked
@@ -429,15 +436,19 @@ class VoiceWorker(PipelineWorker):
         """The recognition stage and the synthesizer: ``[*stt, tts]``.
 
         Recognition is Moonshine on the machine, always, hearing everything
-        (its transcripts are what the wake gate reads). In cloud mode Deepgram
-        follows it, connected only while the gate is awake, and Cartesia
-        speaks over HTTP. In local mode Kokoro speaks and nothing is ever
-        connected.
+        (its transcripts are what the wake gate reads) and, unless Deepgram
+        is chosen, the conversation too. With Deepgram, it follows Moonshine,
+        connected only while the gate is awake. Cartesia speaks over HTTP in
+        cloud mode; in local mode Kokoro speaks and nothing is ever connected.
         """
-        # Audio passes through Moonshine so the cloud recognizer behind it
-        # can hear too, once awake. The gate comes last and sees both
-        # recognizers' transcripts.
-        stage: list[FrameProcessor] = [LocalMoonshineSTTService(audio_passthrough=True)]
+        # With a cloud recognizer behind it, audio passes through Moonshine
+        # so that one can hear too, once awake. The gate comes last and sees
+        # every recognizer's transcripts.
+        cloud_stt = self._stt == "deepgram"
+        stage: list[FrameProcessor] = [LocalMoonshineSTTService(audio_passthrough=cloud_stt)]
+        if cloud_stt:
+            self._cloud_stt = OnDemandDeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+            stage.append(self._cloud_stt)
         if self._speech == "local":
             from pipecat.services.kokoro.tts import KokoroTTSService
 
@@ -446,8 +457,6 @@ class VoiceWorker(PipelineWorker):
                 stop_frame_timeout_s=TTS_IDLE_TIMEOUT_SECS,
             )
         else:
-            self._cloud_stt = OnDemandDeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
-            stage.append(self._cloud_stt)
             tts = CartesiaHttpTTSService(
                 api_key=os.getenv("CARTESIA_API_KEY"),
                 settings=CartesiaHttpTTSService.Settings(voice=os.getenv("CARTESIA_VOICE_ID") or CARTESIA_VOICE),
@@ -457,6 +466,7 @@ class VoiceWorker(PipelineWorker):
                 on_wake=self._on_wake,
                 on_sleep=self._on_sleep,
                 on_acknowledge=lambda: self.say(WAKE_ACK),
+                local_conversation=not cloud_stt,
             )
             stage.append(self._wake_gate)
         return [*stage, tts]

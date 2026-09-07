@@ -59,8 +59,8 @@ APP_ICON = Path(__file__).parent / "macos" / "assets" / "appicon.png"
 # Plan §5: the store lives where Mac apps keep their data.
 DEFAULT_STORE = Path("~/Library/Application Support/Peekaboo").expanduser()
 
-# With --local-speech only the LLM needs a key.
-CLOUD_SPEECH_KEYS = ("DEEPGRAM_API_KEY", "CARTESIA_API_KEY")
+# With --local-speech only the LLM needs a key; Deepgram's only when chosen.
+CLOUD_SPEECH_KEYS = ("CARTESIA_API_KEY",)
 
 
 class App:
@@ -170,6 +170,7 @@ class App:
             screen_from_transport=False,
             open_links=True,
             speech="local" if self.args.local_speech else "cloud",
+            stt=self.args.stt,
             registry=registry,
             on_state=self.shell.set_voice_state,
             on_show=self.shell.open_memories,
@@ -344,7 +345,13 @@ def parse_args():
     parser.add_argument(
         "--local-speech",
         action="store_true",
-        help="Moonshine and Kokoro on the machine instead of Deepgram and Cartesia",
+        help="Moonshine and Kokoro on the machine instead of Cartesia speaking",
+    )
+    parser.add_argument(
+        "--stt",
+        choices=("moonshine", "deepgram"),
+        default="moonshine",
+        help="who hears the conversation once awake: Moonshine on the machine (default) or Deepgram",
     )
     parser.add_argument("--open-memories", action="store_true", help="open the memories window on launch")
     parser.add_argument("--snapshot-memories", type=Path, help="write a PNG of the memories page after launch")
@@ -364,6 +371,8 @@ def main() -> int:
 
     load_dotenv(override=True)
     required = ("ANTHROPIC_API_KEY",) + (() if args.local_speech else CLOUD_SPEECH_KEYS)
+    if args.stt == "deepgram":
+        required += ("DEEPGRAM_API_KEY",)
     missing = [k for k in required if not os.getenv(k)]
     if missing:
         logger.error(f"missing {', '.join(missing)}; copy .env.example to .env and fill it in")

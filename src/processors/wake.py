@@ -6,14 +6,17 @@
 
 """The wake gate: Peekaboo listens locally and only wakes up when addressed.
 
-Sits after both recognizers: Moonshine on the machine, always on, and the
-cloud one behind it, connected only while awake. Asleep, every local
-transcript is checked for the wake phrase and dropped otherwise: nothing
-leaves the machine. A transcript that starts with the phrase wakes the gate:
-the words after it go through right away, the cloud recognizer connects for
-what follows, and local transcripts are ignored until the gate sleeps again.
-A bare "Peekaboo" gets a "Yes?" unless the question follows within a couple
-of seconds. The gate sleeps after a quiet spell following the last word.
+Sits after the recognizers: Moonshine on the machine, always on, and, when
+there is one, a cloud recognizer behind it, connected only while awake.
+Asleep, every local transcript is checked for the wake phrase and dropped
+otherwise: nothing leaves the machine. A transcript that starts with the
+phrase wakes the gate: the words after it go through right away. What
+follows while awake comes from the cloud recognizer if there is one, with
+local transcripts ignored until the gate sleeps again; with Moonshine alone
+(``local_conversation``) the local transcripts are the conversation and go
+through as they are, the phrase stripped if it is said again. A bare
+"Peekaboo" gets a "Yes?" unless the question follows within a couple of
+seconds. The gate sleeps after a quiet spell following the last word.
 
 Small local models mangle the word on its own ("P. K.", "Pika Bu", "Peek-a-",
 "Hey Pico"), so the match is phonetic rather than literal.
@@ -109,6 +112,8 @@ class WakeGate(FrameProcessor):
         on_sleep: Called when it goes back to sleep; disconnect it.
         on_acknowledge: Called when the phrase came alone and nothing
             followed, to answer "Yes?".
+        local_conversation: There is no cloud recognizer: while awake the
+            local transcripts are the conversation and pass through.
     """
 
     def __init__(
@@ -118,9 +123,11 @@ class WakeGate(FrameProcessor):
         on_sleep: Optional[Callable[[], Awaitable[None]]] = None,
         on_acknowledge: Optional[Callable[[], Awaitable[None]]] = None,
         window_secs: float = AWAKE_WINDOW_SECS,
+        local_conversation: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self._local_conversation = local_conversation
         self._on_wake = on_wake
         self._on_sleep = on_sleep
         self._on_acknowledge = on_acknowledge
@@ -167,9 +174,20 @@ class WakeGate(FrameProcessor):
 
     async def _handle_local(self, frame: LocalTranscriptionFrame, direction: FrameDirection):
         if self.awake:
-            # The cloud recognizer has the conversation now.
-            logger.debug(f"{self}: ignoring local transcript while awake: {frame.text!r}")
             self._extend()
+            if not self._local_conversation:
+                # The cloud recognizer has the conversation now.
+                logger.debug(f"{self}: ignoring local transcript while awake: {frame.text!r}")
+                return
+            self._cancel_ack()
+            text = frame.text
+            remainder = strip_wake(text)
+            if remainder is not None:
+                if not remainder.strip():
+                    logger.debug(f"{self}: the wake word alone while awake, ignored")
+                    return
+                text = remainder
+            await self.push_frame(TranscriptionFrame(**_fields(replace(frame, text=text))), direction)
             return
 
         remainder = strip_wake(frame.text)

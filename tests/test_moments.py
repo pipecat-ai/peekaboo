@@ -354,3 +354,27 @@ def test_gate_strips_the_wake_word_from_cloud_transcripts_while_awake():
         assert texts == ["what time is it?"]
 
     asyncio.run(go())
+
+
+def test_wake_gate_lets_local_transcripts_through_while_awake_without_a_cloud_recognizer():
+    """With Moonshine alone, what is said after waking is the conversation."""
+    import asyncio
+
+    from pipecat.frames.frames import TranscriptionFrame
+    from pipecat.tests.utils import run_test
+
+    from processors.wake import LocalTranscriptionFrame, WakeGate
+
+    async def go(local_conversation: bool):
+        gate = WakeGate(local_conversation=local_conversation)
+        frames = [
+            LocalTranscriptionFrame("hello there", "", ""),
+            LocalTranscriptionFrame("Peekaboo, what time is it", "", ""),
+            LocalTranscriptionFrame("and what day is it", "", ""),
+            LocalTranscriptionFrame("Peekaboo, thanks", "", ""),
+        ]
+        down, _ = await run_test(gate, frames_to_send=frames, expected_down_frames=None)
+        return [f.text for f in down if isinstance(f, TranscriptionFrame)]
+
+    assert asyncio.run(go(True)) == ["what time is it", "and what day is it", "thanks"]
+    assert asyncio.run(go(False)) == ["what time is it"]
