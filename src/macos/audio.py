@@ -26,6 +26,8 @@ copy bytes and hop into the asyncio loop.
 """
 
 import asyncio
+import math
+import time
 from collections.abc import Callable
 from typing import Optional
 
@@ -62,6 +64,9 @@ OUTPUT_LEAD_SECS = 0.12
 TAP_BUFFER_SECS = 0.02
 
 DEFAULT_OUTPUT_RATE = 24000
+
+# How often the input level is written to the log.
+MIC_LEVEL_LOG_SECS = 5.0
 
 
 class MacAudioTransportParams(TransportParams):
@@ -368,9 +373,17 @@ class MacAudioInputTransport(BaseInputTransport):
 
     async def _drain(self):
         chunk_bytes = int(self.sample_rate * TAP_BUFFER_SECS) * 2
+        # The microphone level, logged now and then: the first thing to look
+        # at when nothing is heard.
+        peak, since = 0.0, time.monotonic()
         while True:
             pcm, rate = await self._queue.get()
             samples = np.clip(np.frombuffer(pcm, dtype=np.float32), -1.0, 1.0)
+            peak = max(peak, float(np.max(np.abs(samples))) if samples.size else 0.0)
+            if time.monotonic() - since >= MIC_LEVEL_LOG_SECS:
+                db = 20 * math.log10(peak) if peak > 0 else -120.0
+                logger.debug(f"mic: peak {db:.0f} dBFS over the last {MIC_LEVEL_LOG_SECS:.0f} s ({rate} Hz in)")
+                peak, since = 0.0, time.monotonic()
             audio = (samples * 32767.0).astype(np.int16).tobytes()
             if rate != self.sample_rate:
                 audio = await self._resampler.resample(audio, rate, self.sample_rate)

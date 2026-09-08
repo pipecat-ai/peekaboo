@@ -171,6 +171,7 @@ class App:
             open_links=True,
             speech="local" if self.args.local_speech else "cloud",
             stt=self.args.stt,
+            stt_model=self.args.stt_model,
             registry=registry,
             on_state=self.shell.set_voice_state,
             on_show=self.shell.open_memories,
@@ -352,6 +353,11 @@ def parse_args():
         choices=("moonshine", "deepgram"),
         default="moonshine",
         help="who hears the conversation once awake: Moonshine on the machine (default) or Deepgram",
+    )
+    parser.add_argument(
+        "--stt-model",
+        choices=("tiny", "base", "tiny-streaming", "base-streaming", "small-streaming", "medium-streaming"),
+        help="the Moonshine model (default small-streaming; medium-streaming is the most accurate)",
     )
     parser.add_argument("--open-memories", action="store_true", help="open the memories window on launch")
     parser.add_argument("--snapshot-memories", type=Path, help="write a PNG of the memories page after launch")

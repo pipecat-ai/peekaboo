@@ -360,6 +360,7 @@ class VoiceWorker(PipelineWorker):
         open_links: bool = True,
         speech: SpeechServices = "cloud",
         stt: Recognizer = "moonshine",
+        stt_model: Optional[str] = None,
         registry: Optional["WindowRegistry"] = None,
         on_state: Optional[Callable[[str], None]] = None,
         on_show: Optional[Callable[[list[int]], None]] = None,
@@ -383,6 +384,8 @@ class VoiceWorker(PipelineWorker):
         self._open_links = open_links
         self._speech = speech
         self._stt = stt
+        # A Moonshine model name (see ``pipecat.services.moonshine.stt.Model``); None is the service default.
+        self._stt_model = stt_model
         self._registry = registry
         self._on_show = on_show
         self._on_asked = on_asked
@@ -446,7 +449,8 @@ class VoiceWorker(PipelineWorker):
         # Moonshine hears through it too, once awake. The gate comes last and
         # sees every recognizer's transcripts.
         cloud_stt = self._stt == "deepgram"
-        stage: list[FrameProcessor] = [LocalMoonshineSTTService(audio_passthrough=True)]
+        moonshine_settings = MoonshineSTTService.Settings(model=self._stt_model) if self._stt_model else None
+        stage: list[FrameProcessor] = [LocalMoonshineSTTService(settings=moonshine_settings, audio_passthrough=True)]
         if cloud_stt:
             self._cloud_stt = OnDemandDeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
             stage.append(self._cloud_stt)
