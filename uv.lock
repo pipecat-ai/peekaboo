@@ -1661,7 +1661,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pipecat-ai", extras = ["anthropic", "cartesia", "daily", "deepgram", "kokoro", "moonshine", "runner", "silero", "webrtc"], specifier = "==1.8.1" },
+    { name = "pipecat-ai", extras = ["anthropic", "cartesia", "daily", "deepgram", "kokoro", "moonshine", "runner", "silero", "webrtc"], editable = "../pipecat" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'", specifier = ">=11.0" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=11.0" },
     { name = "pyobjc-framework-coremedia", marker = "sys_platform == 'darwin'", specifier = ">=11.0" },
@@ -1753,8 +1753,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "1.8.1"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../pipecat" }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiohttp" },
@@ -1775,13 +1774,10 @@ dependencies = [
     { name = "pydantic", version = "2.13.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "pyyaml" },
     { name = "resampy" },
+    { name = "soundfile" },
     { name = "soxr" },
     { name = "typing-extensions" },
     { name = "websockets" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/3b/a81a3022b14ea9170cb9ff887f4747864e2e8f358822d3a579c194571fb4/pipecat_ai-1.8.1.tar.gz", hash = "sha256:770061eaf56b265d77a0bec7adf0d1b8e229ff9543940d4f9acd1150f0ca6b15", size = 12015941, upload-time = "2026-08-27T16:19:04.286Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ed/f3/831d7945faf23f4b1c1e4289a0340cde00e830899e67c0cbdfa83412f71f/pipecat_ai-1.8.1-py3-none-any.whl", hash = "sha256:c0097e3946cafa431a75c3b730eb9175a0450b5104e7ae5ae58dd5f6d1a0bbad", size = 11508781, upload-time = "2026-08-27T16:19:01.349Z" },
 ]
 
 [package.optional-dependencies]
@@ -1810,6 +1806,142 @@ runner = [
 webrtc = [
     { name = "aiortc" },
     { name = "opencv-python-headless" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate", marker = "extra == 'moondream'", specifier = "~=1.10.0" },
+    { name = "aic-sdk", marker = "extra == 'aic'", specifier = "~=3.1.0" },
+    { name = "aiobotocore", marker = "extra == 'aws'", specifier = ">=3,<4" },
+    { name = "aiofiles", specifier = ">=24.1.0,<27" },
+    { name = "aiohttp", specifier = ">=3.11.12,<4" },
+    { name = "aiortc", marker = "extra == 'webrtc'", specifier = ">=1.14.0,<2" },
+    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.49.0,<1" },
+    { name = "asyncpg", marker = "extra == 'pgmq'", specifier = ">=0.30.0" },
+    { name = "audioop-lts", marker = "python_full_version >= '3.13'", specifier = "~=0.2.1" },
+    { name = "av", marker = "extra == 'rnnoise'", specifier = "<17.1.0" },
+    { name = "aws-sdk-bedrock-runtime", marker = "python_full_version >= '3.12' and extra == 'aws-nova-sonic'", specifier = "~=0.4.0" },
+    { name = "aws-sdk-sagemaker-runtime-http2", marker = "python_full_version >= '3.12' and extra == 'sagemaker'" },
+    { name = "azure-cognitiveservices-speech", marker = "extra == 'azure'", specifier = ">=1.47.0,<2" },
+    { name = "camb-sdk", marker = "extra == 'camb'", specifier = ">=1.5.4,<2" },
+    { name = "coremltools", marker = "extra == 'local-smart-turn'", specifier = ">=8.0" },
+    { name = "cryptography", marker = "extra == 'moq'", specifier = ">=45.0.0" },
+    { name = "daily-python", marker = "extra == 'daily'", specifier = ">=0.29.0,<1" },
+    { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=6.1.1,<8" },
+    { name = "docstring-parser", specifier = ">=0.16,<1" },
+    { name = "einops", marker = "extra == 'moondream'", specifier = "~=0.8.0" },
+    { name = "fastapi", marker = "extra == 'runner'", specifier = ">=0.115.6,<1" },
+    { name = "fastapi", marker = "extra == 'websocket'", specifier = ">=0.115.6,<1" },
+    { name = "faster-whisper", marker = "extra == 'whisper'", specifier = "~=1.2.1" },
+    { name = "funasr", marker = "extra == 'funasr'", specifier = ">=1.1.0" },
+    { name = "google-cloud-speech", marker = "extra == 'google'", specifier = ">=2.33.0,<3" },
+    { name = "google-cloud-texttospeech", marker = "extra == 'google'", specifier = ">=2.31.0,<3" },
+    { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.68.0,<3" },
+    { name = "groq", marker = "extra == 'groq'", specifier = ">=0.23.0,<2" },
+    { name = "hume", marker = "extra == 'hume'", specifier = ">=0.11.2,<1" },
+    { name = "jinja2", marker = "extra == 'cli'", specifier = ">=3.1.0,<4" },
+    { name = "kokoro-onnx", marker = "extra == 'kokoro'", specifier = ">=0.5.0,<1" },
+    { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1.2.13,<2" },
+    { name = "langchain-community", marker = "extra == 'langchain'", specifier = ">=0.4.1,<1" },
+    { name = "langchain-openai", marker = "extra == 'langchain'", specifier = ">=1.1.12,<2" },
+    { name = "livekit", marker = "extra == 'heygen'", specifier = ">=1.0.13,<2" },
+    { name = "livekit", marker = "extra == 'livekit'", specifier = ">=1.0.13,<2" },
+    { name = "livekit-api", marker = "extra == 'livekit'", specifier = ">=1.0.5,<2" },
+    { name = "loguru", specifier = "~=0.7.3" },
+    { name = "loudness", specifier = ">=0.2.0,<1" },
+    { name = "markdown", specifier = ">=3.7,<4" },
+    { name = "mcp", extras = ["cli"], marker = "extra == 'mcp'", specifier = ">=1.11.0,<2" },
+    { name = "mem0ai", marker = "extra == 'mem0'", specifier = ">=2,<3" },
+    { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=2.0.0,<3" },
+    { name = "mlx-whisper", marker = "extra == 'mlx-whisper'", specifier = "~=0.4.2" },
+    { name = "moonshine-voice", marker = "extra == 'moonshine'", specifier = ">=0.1.5" },
+    { name = "moq-rs", marker = "extra == 'moq'", specifier = "~=0.4.4" },
+    { name = "nltk", specifier = ">=3.10.0,<4" },
+    { name = "num2words", specifier = ">=0.5.14" },
+    { name = "numba", specifier = ">=0.61.2,<1" },
+    { name = "numpy", specifier = ">=1.26.4,<3" },
+    { name = "nvidia-riva-client", marker = "extra == 'nvidia'", specifier = ">=2.25.1,<3" },
+    { name = "onnxruntime", specifier = "~=1.24.3" },
+    { name = "openai", specifier = ">=1.74.0,<3" },
+    { name = "opencv-python-headless", marker = "extra == 'webrtc'", specifier = ">=4.11.0.86,<5" },
+    { name = "opentelemetry-api", marker = "extra == 'tracing'", specifier = ">=1.33.0,<2" },
+    { name = "opentelemetry-instrumentation", marker = "extra == 'tracing'", specifier = ">=0.54b0,<1" },
+    { name = "opentelemetry-sdk", marker = "extra == 'tracing'", specifier = ">=1.33.0,<2" },
+    { name = "ormsgpack", marker = "extra == 'fish'", specifier = ">=1.7.0,<2" },
+    { name = "pgmq", marker = "extra == 'pgmq'", specifier = ">=1.0.6,<1.1" },
+    { name = "pillow", specifier = ">=11.1.0,<13" },
+    { name = "pipecat-ai", extras = ["cli"], marker = "extra == 'evals'" },
+    { name = "pipecat-ai", extras = ["daily"], marker = "extra == 'lemonslice'" },
+    { name = "pipecat-ai", extras = ["daily"], marker = "extra == 'tavus'" },
+    { name = "pipecat-ai", extras = ["kokoro"], marker = "extra == 'evals'" },
+    { name = "pipecat-ai", extras = ["mcp"], marker = "extra == 'keenable'" },
+    { name = "pipecat-ai", extras = ["moonshine"], marker = "extra == 'evals'" },
+    { name = "pipecat-ai", extras = ["webrtc"], marker = "extra == 'webrtc-video'" },
+    { name = "pipecat-ai-context-hub", marker = "extra == 'cli'", specifier = ">=0.7.0,<1" },
+    { name = "pipecat-ai-prebuilt", marker = "extra == 'runner'", specifier = ">=1.0.6" },
+    { name = "piper-tts", marker = "extra == 'piper'", specifier = ">=1.3.0,<2" },
+    { name = "pocket-tts", marker = "extra == 'pocket-tts'", specifier = ">=2.1.0,<3" },
+    { name = "protobuf", specifier = ">=5.29.6,<7" },
+    { name = "protobuf", marker = "extra == 'nvidia'", specifier = ">=6.31.1,<7" },
+    { name = "pvkoala", marker = "extra == 'koala'", specifier = "~=2.0.3" },
+    { name = "pyaudio", marker = "extra == 'local'", specifier = "~=0.2.14" },
+    { name = "pydantic", specifier = ">=2.10.6,<3" },
+    { name = "pydantic", marker = "python_full_version >= '3.14'", specifier = ">=2.13" },
+    { name = "pygobject", marker = "extra == 'gstreamer'", specifier = "~=3.50.0" },
+    { name = "pyjwt", marker = "extra == 'livekit'", specifier = ">=2.12.0,<3" },
+    { name = "pyrnnoise", marker = "extra == 'rnnoise'", specifier = "~=0.4.3" },
+    { name = "python-dotenv", marker = "extra == 'runner'", specifier = ">=1.0.0,<2.0.0" },
+    { name = "pyvips", extras = ["binary"], marker = "extra == 'moondream'", specifier = "~=3.0.0" },
+    { name = "pyyaml", specifier = ">=6,<7" },
+    { name = "questionary", marker = "extra == 'cli'", specifier = ">=2.0.0,<3" },
+    { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=5.0.0" },
+    { name = "requests", marker = "extra == 'kokoro'", specifier = ">=2.32.5,<3" },
+    { name = "requests", marker = "extra == 'piper'", specifier = ">=2.32.5,<3" },
+    { name = "resampy", specifier = "~=0.4.3" },
+    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0.0,<14" },
+    { name = "ruff", marker = "extra == 'cli'", specifier = ">=0.12.1,<1" },
+    { name = "sarvamai", marker = "extra == 'sarvam'", specifier = "==0.1.28" },
+    { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.28.0,<3" },
+    { name = "simli-ai", marker = "extra == 'simli'", specifier = "~=2.0.1" },
+    { name = "soundfile", specifier = "~=0.13.1" },
+    { name = "soxr", specifier = "~=1.0.0" },
+    { name = "speechmatics-voice", extras = ["smart"], marker = "extra == 'speechmatics'", specifier = "~=0.2.8" },
+    { name = "strands-agents", marker = "extra == 'strands'", specifier = ">=1.9.1,<2" },
+    { name = "tenacity", marker = "extra == 'livekit'", specifier = ">=8.2.3,<10.0.0" },
+    { name = "timm", marker = "extra == 'moondream'", specifier = "~=1.0.13" },
+    { name = "torch", marker = "extra == 'local-smart-turn'", specifier = ">=2.5.0,<3" },
+    { name = "torchaudio", marker = "extra == 'local-smart-turn'", specifier = ">=2.5.0,<3" },
+    { name = "transformers", marker = "extra == 'local-smart-turn'", specifier = ">=4.48.0,<6" },
+    { name = "transformers", marker = "extra == 'moondream'", specifier = ">=4.48.0,<6" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.20.0,<1" },
+    { name = "typing-extensions", specifier = ">=4.9" },
+    { name = "uvicorn", marker = "extra == 'runner'", specifier = ">=0.32.0,<1.0.0" },
+    { name = "vonage-video-connector", marker = "python_full_version == '3.13.*' and sys_platform == 'linux' and extra == 'vonage-video-connector'", specifier = "~=1.0.2" },
+    { name = "wait-for2", marker = "python_full_version < '3.12'", specifier = ">=0.4.1,<1" },
+    { name = "websockets", specifier = ">=13.1" },
+]
+provides-extras = ["aic", "anthropic", "assemblyai", "asyncai", "aws", "aws-nova-sonic", "azure", "baseten", "bland", "cartesia", "camb", "cerebras", "crusoe", "daily", "deepgram", "deepseek", "elevenlabs", "evals", "fal", "fireworks", "fish", "funasr", "gladia", "google", "gradium", "grok", "groq", "gstreamer", "heygen", "hume", "inception", "inworld", "keenable", "koala", "kokoro", "langchain", "lemonslice", "livekit", "lmnt", "local", "local-smart-turn", "mcp", "mem0", "mistral", "mlx-whisper", "moondream", "moonshine", "moq", "nebius", "neuphonic", "novita", "nvidia", "openai", "rnnoise", "openrouter", "perplexity", "pgmq", "piper", "pocket-tts", "qwen", "redis", "resembleai", "rime", "runner", "sagemaker", "sambanova", "sarvam", "sentry", "silero", "simli", "smallest", "soniox", "soundfile", "speechify", "speechmatics", "strands", "tavus", "together", "tracing", "ultravox", "vonage-video-connector", "webrtc", "webrtc-video", "websocket", "whisper", "xai", "cli"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "build", specifier = "~=1.4.0" },
+    { name = "coverage", specifier = "~=7.13.4" },
+    { name = "grpcio-tools", specifier = ">=1.67.1,<2" },
+    { name = "pip-tools", specifier = "~=7.5.3" },
+    { name = "pre-commit", specifier = "~=4.5.1" },
+    { name = "pyright", specifier = "==1.1.411" },
+    { name = "pytest", specifier = ">=9.0.0,<10" },
+    { name = "pytest-aiohttp", specifier = ">=1.0.0,<2" },
+    { name = "pytest-asyncio", specifier = ">=1.0.0,<2" },
+    { name = "python-dotenv", specifier = ">=1.0.1,<2.0.0" },
+    { name = "ruff", specifier = ">=0.12.11,<1" },
+    { name = "setuptools", specifier = "~=83.0.0" },
+    { name = "setuptools-scm", specifier = "~=8.3.1" },
+    { name = "towncrier", specifier = "~=25.8.0" },
+]
+docs = [
+    { name = "sphinx", specifier = ">=8.1.3" },
+    { name = "sphinx-rtd-theme" },
 ]
 
 [[package]]
@@ -2687,6 +2819,25 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c5/6f/6292145099f72a153a710245f46ae43e5fb6c77bec1b6086cb76c12dc280/sounddevice-0.5.6-py3-none-win32.whl", hash = "sha256:b36b807eb02abd257198bf84b2af05e4fea199a9d2f0019014169c7136d45e9c", size = 1009627, upload-time = "2026-08-17T07:55:00.401Z" },
     { url = "https://files.pythonhosted.org/packages/8d/3e/cbc593c31a5f0d817b3fe97e64aa8461bd0f55cb07b67ce1b776296ae336/sounddevice-0.5.6-py3-none-win_amd64.whl", hash = "sha256:7f4162f514f007b0bf25a3ccfed3f1705bc2ec311888a90232729eec4f57a4f4", size = 1009630, upload-time = "2026-08-17T07:55:02.088Z" },
     { url = "https://files.pythonhosted.org/packages/60/a4/b0c21c9f215a6fd9606b8f8748c21212dc098e5d5a2d93068c50edcf19b4/sounddevice-0.5.6-py3-none-win_arm64.whl", hash = "sha256:c8ae19173e5f27f8c12d4b5eee2dbfe542cee125d591e663e0fb4dfb75246d45", size = 1009630, upload-time = "2026-08-17T07:55:03.689Z" },
+]
+
+[[package]]
+name = "soundfile"
+version = "0.13.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e1/41/9b873a8c055582859b239be17902a85339bec6a30ad162f98c9b0288a2cc/soundfile-0.13.1.tar.gz", hash = "sha256:b2c68dab1e30297317080a5b43df57e302584c49e2942defdde0acccc53f0e5b", size = 46156, upload-time = "2025-01-25T09:17:04.831Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/28/e2a36573ccbcf3d57c00626a21fe51989380636e821b341d36ccca0c1c3a/soundfile-0.13.1-py2.py3-none-any.whl", hash = "sha256:a23c717560da2cf4c7b5ae1142514e0fd82d6bbd9dfc93a50423447142f2c445", size = 25751, upload-time = "2025-01-25T09:16:44.235Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/ab/73e97a5b3cc46bba7ff8650a1504348fa1863a6f9d57d7001c6b67c5f20e/soundfile-0.13.1-py2.py3-none-macosx_10_9_x86_64.whl", hash = "sha256:82dc664d19831933fe59adad199bf3945ad06d84bc111a5b4c0d3089a5b9ec33", size = 1142250, upload-time = "2025-01-25T09:16:47.583Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/e5/58fd1a8d7b26fc113af244f966ee3aecf03cb9293cb935daaddc1e455e18/soundfile-0.13.1-py2.py3-none-macosx_11_0_arm64.whl", hash = "sha256:743f12c12c4054921e15736c6be09ac26b3b3d603aef6fd69f9dde68748f2593", size = 1101406, upload-time = "2025-01-25T09:16:49.662Z" },
+    { url = "https://files.pythonhosted.org/packages/58/ae/c0e4a53d77cf6e9a04179535766b3321b0b9ced5f70522e4caf9329f0046/soundfile-0.13.1-py2.py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:9c9e855f5a4d06ce4213f31918653ab7de0c5a8d8107cd2427e44b42df547deb", size = 1235729, upload-time = "2025-01-25T09:16:53.018Z" },
+    { url = "https://files.pythonhosted.org/packages/57/5e/70bdd9579b35003a489fc850b5047beeda26328053ebadc1fb60f320f7db/soundfile-0.13.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:03267c4e493315294834a0870f31dbb3b28a95561b80b134f0bd3cf2d5f0e618", size = 1313646, upload-time = "2025-01-25T09:16:54.872Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/df/8c11dc4dfceda14e3003bb81a0d0edcaaf0796dd7b4f826ea3e532146bba/soundfile-0.13.1-py2.py3-none-win32.whl", hash = "sha256:c734564fab7c5ddf8e9be5bf70bab68042cd17e9c214c06e365e20d64f9a69d5", size = 899881, upload-time = "2025-01-25T09:16:56.663Z" },
+    { url = "https://files.pythonhosted.org/packages/14/e9/6b761de83277f2f02ded7e7ea6f07828ec78e4b229b80e4ca55dd205b9dc/soundfile-0.13.1-py2.py3-none-win_amd64.whl", hash = "sha256:1e70a05a0626524a69e9f0f4dd2ec174b4e9567f4d8b6c11d38b5c289be36ee9", size = 1019162, upload-time = "2025-01-25T09:16:59.573Z" },
 ]
 
 [[package]]

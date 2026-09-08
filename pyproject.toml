@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     # Moonshine hears, Cartesia speaks by default; Kokoro speaks with
     # --local-speech, and Deepgram hears with --stt deepgram.
-    "pipecat-ai[anthropic,cartesia,daily,deepgram,kokoro,moonshine,runner,silero,webrtc]==1.8.1",
+    "pipecat-ai[anthropic,cartesia,daily,deepgram,kokoro,moonshine,runner,silero,webrtc]>=1.8.1",
     # The macOS capture and audio layers. Marked so a Linux checkout still
     # resolves; nothing outside src/macos/ and spikes/ imports these.
     "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
@@ -18,3 +18,8 @@ dependencies = [
     "pyobjc-framework-WebKit>=11.0; sys_platform == 'darwin'",
 ]
 
+# The sibling checkout, editable: Peekaboo tracks pipecat's main. `uv run`
+# syncs the environment from the lock before every run, so a manual
+# `uv pip install -e ../pipecat` did not survive; this does.
+[tool.uv.sources]
+pipecat-ai = { path = "../pipecat", editable = true }
