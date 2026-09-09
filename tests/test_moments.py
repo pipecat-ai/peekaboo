@@ -145,10 +145,12 @@ def test_strip_wake_recognizes_the_phrase_and_its_mishearings():
         ("Peekable,", ""),
         ("Hey, Peekaboo,, show me the timeline.", "show me the timeline."),
         ("Pick a book,", ""),
+        ("Pickle-boom,", ""),
+        ("Beekaboo,", ""),
     ]:
         assert strip_wake(heard) == rest, heard
     # Everyday words that sound nothing like it stay asleep.
-    for other in ["what does the terminal say?", "", "Pick one.", "Peak hours are busy.", "Yeah What was I doing this morning?", "Thank you.", "P.", "Papi Kaboo, what does the terminal say?"]:
+    for other in ["what does the terminal say?", "", "Pick one.", "Peak hours are busy.", "Yeah What was I doing this morning?", "Thank you.", "P.", "Papi Kaboo, what does the terminal say?", "Pickle.", "pickled onions", "pick up the phone", "Pikachu"]:
         assert strip_wake(other) is None, other
 
 

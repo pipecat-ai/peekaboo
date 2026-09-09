@@ -80,6 +80,12 @@ def _is_wake(candidate: str) -> bool:
     key = _phonetic(candidate)
     if key in _FRAGMENTS or _distance(key, _PHONETIC_KEY) <= 1:
         return True
+    # "Pickle-boom": an "l" slipped in after the "k" and the "boo" grew an
+    # "m". Without those it is the word; "pickle", "pickled" and "pickup"
+    # stay two edits away.
+    loose = re.sub(r"l", "", key).rstrip("m")
+    if loose != key and _distance(loose, _PHONETIC_KEY) <= 1:
+        return True
     # "Peekable", "Peekabull": the start is right and the end trails off.
     return key.startswith("pikab") and len(key) <= 8
 
