@@ -1263,11 +1263,12 @@ function renderModels() {
     fillSelect($(provSel), provs, cur.provider, (p) => names[p] || p);
     fillModels($(provSel).value, listId, $(modelInput), cur.model);
   }
+  // One key per provider in use: with both LLMs on Anthropic, one row.
+  const inUse = new Set([llmSetting("voice_llm").provider, llmSetting("vision_llm").provider]);
   for (const p of modelInfo.providers || []) {
     const row = $("#key-" + p.id); if (!row) continue;
-    row.querySelector(".keystate").textContent = p.key_source === "keychain" ? "A key is stored in your keychain. Enter a new one to replace it."
-      : p.key_source === "env" ? "Using the key from the environment (.env). Save one here to keep it in your keychain instead."
-      : "No key yet. Paste one and press Save; it goes to your keychain.";
+    row.hidden = !inUse.has(p.id);
+    row.querySelector(".keystate").textContent = p.has_key ? "A key is stored in your keychain. Enter a new one to replace it." : "No key yet. Paste one and press Save; it goes to your keychain.";
     row.dataset.hasKey = p.has_key ? "1" : "";
   }
   checkRestart();
@@ -1290,7 +1291,7 @@ for (const [key, provSel, modelInput, listId] of [["voice_llm", "#voiceprov", "#
   $(provSel).onchange = (e) => {
     const p = (modelInfo.providers || []).find((x) => x.id === e.target.value);
     fillModels(e.target.value, listId, $(modelInput), p && p.models[0]);
-    saveModelSetting(key, { provider: e.target.value, model: $(modelInput).value });
+    saveModelSetting(key, { provider: e.target.value, model: $(modelInput).value }).then(renderModels);
   };
   $(modelInput).onchange = (e) => saveModelSetting(key, { provider: $(provSel).value, model: e.target.value.trim() });
 }

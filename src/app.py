@@ -16,7 +16,7 @@ from the menu, Ctrl-C in the terminal, or log out: every exit goes through
 are down.
 
 Needs Screen Recording and Microphone granted to the terminal, and the keys
-from ``.env.example`` in a ``.env`` here. With ``--local-speech`` recognition
+in Settings (the keychain). With ``--tts cartesia`` or ``--stt deepgram`` recognition
 and synthesis run on the machine (Moonshine, Kokoro; models download on first
 use) and only the Anthropic key is needed.
 """
@@ -32,7 +32,6 @@ from typing import Optional
 
 import AppKit
 import objc
-from dotenv import load_dotenv
 from Foundation import NSObject, NSTimer
 from loguru import logger
 from pipecat.pipeline.job_context import JobParams
@@ -133,7 +132,7 @@ class App:
         self._missing_keys = models.missing_keys()
         if self._missing_keys:
             names = ", ".join(models.PROVIDERS[p]["name"] for p in self._missing_keys)
-            logger.warning(f"no API key for {names}: the conversation will not work until one is entered in Settings")
+            logger.warning(f"no API key for {names}: nothing will answer until one is entered in Settings")
         transport = MacAudioTransport(
             MacAudioTransportParams(
                 audio_in_enabled=True,
@@ -386,9 +385,9 @@ def main() -> int:
     level = os.environ.get("PEEKABOO_LOG") or ("TRACE" if args.verbose > 1 else "DEBUG" if args.verbose else "INFO")
     logger.add(sys.stderr, level=level)
 
-    load_dotenv(override=True)
-    # LLM keys come from Settings (the keychain) or the environment; the app
-    # comes up without them and says so. Cloud speech, when chosen, needs its keys.
+    # LLM keys come from Settings (the keychain) and nowhere else; the app
+    # comes up without them and opens Settings. The cloud speech services,
+    # a development option, take theirs from the shell's environment.
     required = ()
     if args.tts == "cartesia":
         required += ("CARTESIA_API_KEY",)

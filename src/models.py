@@ -10,9 +10,8 @@ Two language models: the *voice* one is the conversation (the voice worker,
 and with it the window agent and the history answers, which are its
 helpers), the *vision* one describes frames and answers "look" (the screen
 and vision workers). Each is a provider plus a model; a provider has one
-API key, kept in the keychain, with the environment as a fallback for a
-checkout with a ``.env``. Speech stays on the machine: Moonshine hears
-(and is the wake word), Kokoro speaks.
+API key, entered in Settings and kept in the keychain, nowhere else. Speech
+stays on the machine: Moonshine hears (and is the wake word), Kokoro speaks.
 
 The app reads the choices once at launch (:func:`configure`); a change in
 Settings applies at the next launch.
@@ -29,8 +28,8 @@ ANTHROPIC = "anthropic"
 OPENAI = "openai"
 
 PROVIDERS = {
-    ANTHROPIC: {"name": "Anthropic", "env": "ANTHROPIC_API_KEY"},
-    OPENAI: {"name": "OpenAI", "env": "OPENAI_API_KEY"},
+    ANTHROPIC: {"name": "Anthropic"},
+    OPENAI: {"name": "OpenAI"},
 }
 
 # Suggested models per provider, best for a spoken conversation first.
@@ -112,22 +111,13 @@ def current() -> Models:
 
 
 def api_key(provider: str) -> Optional[str]:
-    """The provider's key: the keychain first, then the environment."""
-    return (key_source(provider) or (None, None))[1]
-
-
-def key_source(provider: str) -> Optional[tuple[str, str]]:
-    """Where the provider's key comes from, ("keychain" | "env", key), or None."""
+    """The provider's key from the keychain, or None."""
     try:
         from macos import keychain
 
-        key = keychain.get(provider)
-        if key:
-            return ("keychain", key)
-    except Exception:  # noqa: BLE001 - no keychain (another OS): the environment
-        pass
-    key = os.getenv(PROVIDERS[provider]["env"])
-    return ("env", key) if key else None
+        return keychain.get(provider)
+    except Exception:  # noqa: BLE001 - no keychain on this platform
+        return None
 
 
 def missing_keys(models: Optional[Models] = None) -> list[str]:
@@ -196,7 +186,7 @@ def describe() -> dict:
     """What Settings shows: the choices, the suggestions, which keys exist."""
     return {
         "providers": [
-            {"id": p, "name": v["name"], "models": MODELS[p], "has_key": bool(api_key(p)), "key_source": (key_source(p) or (None,))[0]}
+            {"id": p, "name": v["name"], "models": MODELS[p], "has_key": bool(api_key(p))}
             for p, v in PROVIDERS.items()
         ],
         "moonshine_models": MOONSHINE_MODELS,
