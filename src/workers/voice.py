@@ -164,7 +164,10 @@ Tool-use rules:
   nothing yourself: the window answers and acts on its own. "Show me the
   watchers", "show me the timeline", "show me the searches", "show me the
   settings", "open Peekaboo" are window navigation, not [show_me] and not
-  [list_watchers]. "This image", "this screenshot", "this one", "what is
+  [list_watchers]. "Open the window", "show the main window", "open your
+  window", "show yourself", "open Peekaboo" mean the Peekaboo window, the
+  app's own: call [window] with "open the window"; it is never one of the
+  user's app windows, so do not call [list_windows] for it. "This image", "this screenshot", "this one", "what is
   this about", "what was this" refer to the memory open in the window: call
   [window], never [look]. Never call [look] with Peekaboo as the target;
   Peekaboo's own window is never the subject of a look. Anything about
@@ -389,7 +392,8 @@ class VoiceWorker(PipelineWorker):
         self._stt = stt
         # A Moonshine model name (see ``pipecat.services.moonshine.stt.Model``); None is the service default.
         self._stt_model = stt_model
-        self._registry = registry
+        # The window registry; BaseWorker owns ``_registry`` (the worker registry).
+        self._windows = registry
         self._on_show = on_show
         self._on_asked = on_asked
         self._on_show_ask = on_show_ask
@@ -945,7 +949,7 @@ class VoiceWorker(PipelineWorker):
         await params.result_callback({"opened": True, "count": len(self._last_ids)})
 
     async def _list_windows(self, params: FunctionCallParams):
-        if self._registry is None:
+        if self._windows is None:
             await params.result_callback({"windows": [], "note": "Only the shared screen is available."})
             return
         from macos.registry import collapse_tabs
@@ -953,7 +957,7 @@ class VoiceWorker(PipelineWorker):
         app = str(params.arguments.get("app") or "").strip().lower()
         windows = [
             {"app": w.app, "title": w.title, "on_screen": w.on_screen, **({"tabs": list(w.tabs)} if w.tabs else {})}
-            for w in collapse_tabs(self._registry.windows)
+            for w in collapse_tabs(self._windows.windows)
             if w.title.strip() and (not app or app in w.app.lower())
         ]
         await params.result_callback({"windows": windows[:MAX_LISTED_WINDOWS]})
