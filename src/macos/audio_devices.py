@@ -34,7 +34,7 @@ class _PropertyAddress(ctypes.Structure):
 
 _SYSTEM_OBJECT = 1
 _GLOBAL, _INPUT = _fourcc("glob"), _fourcc("inpt")
-_DEVICES, _DEFAULT_INPUT = _fourcc("dev#"), _fourcc("dIn ")
+_DEVICES, _DEFAULT_INPUT, _DEFAULT_OUTPUT = _fourcc("dev#"), _fourcc("dIn "), _fourcc("dOut")
 _NAME, _UID, _STREAMS, _TRANSPORT = _fourcc("lnam"), _fourcc("uid "), _fourcc("stm#"), _fourcc("tran")
 _TERMINAL_TYPE = _fourcc("term")
 # Terminal types of the input streams voice processing adds to *output*
@@ -131,6 +131,30 @@ def default_input_id() -> int:
     return struct.unpack("I", raw)[0] if len(raw) == 4 else 0
 
 
+@dataclass(frozen=True)
+class OutputDevice:
+    uid: str
+    name: str
+    transport: str
+
+
+def default_output() -> Optional[OutputDevice]:
+    """The system's default output device."""
+    raw = _prop(_SYSTEM_OBJECT, _DEFAULT_OUTPUT)
+    if len(raw) != 4:
+        return None
+    dev = struct.unpack("I", raw)[0]
+    tran = _prop(dev, _TRANSPORT)
+    code = struct.pack(">I", struct.unpack("I", tran)[0]).decode("ascii", "replace") if len(tran) == 4 else ""
+    return OutputDevice(uid=_string(dev, _UID), name=_string(dev, _NAME), transport=TRANSPORTS.get(code, ""))
+
+
+def same_headset(input_uid: str, output_uid: str) -> bool:
+    """Whether a microphone and an output are two sides of one Bluetooth
+    headset: their UIDs share the address ("AA-BB-…:input", "AA-BB-…:output")."""
+    return bool(input_uid) and input_uid.split(":")[0] == output_uid.split(":")[0]
+
+
 def input_devices() -> list[InputDevice]:
     """Every device with input streams, the system default flagged."""
     default = default_input_id()
@@ -151,6 +175,30 @@ def input_device_id(uid: str) -> Optional[int]:
         if _string(dev, _UID) == uid and _has_microphone(dev):
             return dev
     return None
+
+
+def create_aggregate(output_uid: str, input_uid: str) -> Optional[int]:
+    """A private aggregate device of an output and a microphone, for an I/O
+    unit that must play through one device and capture from another (AVAudioEngine's
+    input and output nodes share one unit). Returns its device id."""
+    import CoreAudio
+
+    description = {
+        "uid": f"ai.pipecat.peekaboo.{input_uid}",
+        "name": "Peekaboo",
+        "subdevices": [{"uid": output_uid}, {"uid": input_uid}],
+        "master": output_uid,
+        "private": 1,
+        "stacked": 0,
+    }
+    err, device_id = CoreAudio.AudioHardwareCreateAggregateDevice(description, None)
+    return device_id if err == 0 and device_id else None
+
+
+def destroy_aggregate(device_id: int):
+    import CoreAudio
+
+    CoreAudio.AudioHardwareDestroyAggregateDevice(device_id)
 
 
 def pin_input_unit(audio_unit, device_id: int) -> bool:

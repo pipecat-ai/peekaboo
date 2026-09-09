@@ -53,7 +53,17 @@ from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 
-from macos.audio_devices import InputDevice, input_device_id, input_devices, pin_input_unit
+from macos.audio_devices import (
+    InputDevice,
+    create_aggregate,
+    default_input_id,
+    default_output,
+    destroy_aggregate,
+    input_device_id,
+    input_devices,
+    pin_input_unit,
+    same_headset,
+)
 
 # How far ahead of the play head output is scheduled before the writer waits.
 # Small keeps interruptions snappy; large survives a busy event loop.
@@ -67,6 +77,10 @@ DEFAULT_OUTPUT_RATE = 24000
 
 # How often the input level is written to the log.
 MIC_LEVEL_LOG_SECS = 5.0
+
+# Starting the engine is retried this often while the input unit settles.
+START_ATTEMPTS = 8
+START_RETRY_SECS = 0.25
 
 
 class MacAudioTransportParams(TransportParams):
@@ -105,6 +119,11 @@ class _Engine:
         self._observer = None
         self._built = False
         self._running = False
+        # A private aggregate (output + chosen microphone) and what it was made for.
+        self._aggregate: Optional[int] = None
+        self._aggregate_for: tuple[str, str] = ("", "")
+        self._vp_active = False
+        self._tap_installed = False
 
     @property
     def running(self) -> bool:
@@ -122,14 +141,48 @@ class _Engine:
         self._on_input = on_input
 
     def start(self):
+        """Start now; raises if the engine will not start."""
         if self._running:
             return
         if not self._built:
             self._build()
+        error = self._try_start()
+        if error is not None:
+            raise RuntimeError(f"AVAudioEngine failed to start: {error}")
+
+    async def start_async(self):
+        """Start, giving the engine time to settle first if it needs it.
+
+        Pinning a microphone after voice processing makes the input unit
+        reconfigure itself: the engine posts a configuration change and
+        refuses to start (-10875) until that is handled, which happens on
+        this loop (:meth:`_reconfigure`, which starts the engine itself).
+        Blocking here would hold that up, so each attempt yields.
+        """
+        if self._running:
+            return
+        if not self._built:
+            self._build()
+        error = None
+        for _ in range(START_ATTEMPTS):
+            if self._running:
+                return
+            error = self._try_start()
+            if error is None:
+                return
+            logger.debug(f"audio engine did not start ({error}); waiting for it to settle")
+            await asyncio.sleep(START_RETRY_SECS)
+        if not self._running:
+            raise RuntimeError(f"AVAudioEngine failed to start: {error}")
+
+    def _try_start(self):
+        """One attempt; None on success, else the error."""
         self._engine.prepare()
         ok, error = self._engine.startAndReturnError_(None)
         if not ok:
-            raise RuntimeError(f"AVAudioEngine failed to start: {error}")
+            return error
+        if not self._tap_installed:
+            self._install_tap()
         self._player.play()
         self._running = True
         logger.info(
@@ -147,15 +200,8 @@ class _Engine:
         if uid == self._input_device:
             return
         self._input_device = uid
-        if not self._built:
-            return
-        was_running = self._running
-        self.stop()
-        self._engine = AVF.AVAudioEngine.alloc().init()
-        self._built = False
-        self._build()
-        if was_running:
-            self.start()
+        if self._built:
+            self._rebuild()
 
     def set_voice_processing(self, enabled: bool):
         """Turn the OS voice processing on or off while running.
@@ -170,26 +216,8 @@ class _Engine:
         if enabled == self._voice_processing:
             return
         self._voice_processing = enabled
-        if not self._built:
-            return
-        was_running = self._running
-        self._running = False
-        input_node = self._engine.inputNode()
-        input_node.removeTapOnBus_(0)
-        self._engine.stop()
-        ok, error = input_node.setVoiceProcessingEnabled_error_(enabled, None)
-        if not ok:
-            logger.warning(f"voice processing could not be {'enabled' if enabled else 'disabled'}: {error}")
-        self._install_tap()
-        if was_running:
-            self._engine.prepare()
-            ok, error = self._engine.startAndReturnError_(None)
-            if not ok:
-                logger.error(f"audio engine did not restart after changing voice processing: {error}")
-                return
-            self._player.play()
-            self._running = True
-        logger.info(f"voice processing {'on' if input_node.isVoiceProcessingEnabled() else 'off'}; input {self._in_rate} Hz")
+        if self._built:
+            self._rebuild()
 
     def stop(self):
         if not self._built:
@@ -197,25 +225,13 @@ class _Engine:
         if self._observer is not None:
             NSNotificationCenter.defaultCenter().removeObserver_(self._observer)
             self._observer = None
-        self._engine.inputNode().removeTapOnBus_(0)
+        self._remove_tap()
         self._engine.stop()
-        self._running = False
         self._running = False
 
     def _build(self):
         engine = self._engine
         input_node = engine.inputNode()
-
-        # 0. A chosen microphone: pinned on the input unit before anything
-        # else touches it. Otherwise the node follows the system default.
-        if self._input_device:
-            device_id = input_device_id(self._input_device)
-            if device_id is None:
-                logger.warning(f"input device {self._input_device!r} is not present; using the system default")
-            elif not pin_input_unit(input_node.audioUnit(), device_id):
-                logger.warning(f"could not select input device {self._input_device!r}; using the system default")
-            else:
-                logger.info(f"microphone: {self._input_device!r}")
 
         # 1. The output graph: a player of int16 mono at the pipeline's rate.
         self._player = AVF.AVAudioPlayerNode.alloc().init()
@@ -225,20 +241,89 @@ class _Engine:
         engine.attachNode_(self._player)
         engine.connect_to_format_(self._player, engine.mainMixerNode(), self._out_format)
 
-        # 2. Voice processing, now that the output side exists.
-        if self._voice_processing:
+        # 2. Voice processing, now that the output side exists, unless it
+        # would take the microphone away (see _voice_processing_allowed).
+        # With it on, macOS picks the microphone itself.
+        self._vp_active = False
+        if self._voice_processing_allowed():
             ok, error = input_node.setVoiceProcessingEnabled_error_(True, None)
             if not ok:
                 logger.warning(f"voice processing could not be enabled: {error}")
+            self._vp_active = bool(ok)
+        else:
+            # 3. A chosen microphone. The input and output nodes share one
+            # I/O unit, so that unit gets an aggregate of the output device
+            # and the microphone; the microphone alone would leave the
+            # output with no device and the engine unable to start.
+            self._pin_input(input_node)
 
-        # 3. The tap.
-        self._install_tap()
+        # 4. The tap. With voice processing on it must be in place before
+        # the engine starts (the format is not writable afterwards); with a
+        # pinned microphone it can only come after, once the unit has
+        # settled on the new device (see _try_start).
+        if self._vp_active:
+            self._install_tap()
 
-        # 4. A new default device stops the engine; pick it back up.
+        # 5. A new default device, or the unit reconfiguring itself after a
+        # pin, stops the engine; pick it back up with a fresh tap.
         self._observer = NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
             AVF.AVAudioEngineConfigurationChangeNotification, engine, None, self._on_configuration_change
         )
         self._built = True
+
+    def _voice_processing_allowed(self) -> bool:
+        """Voice processing, when wanted, unless the user chose a microphone
+        it would override.
+
+        Voice-processing I/O is one unit for both directions and picks its
+        own input: with a Bluetooth headset as the output it insists on the
+        headset's microphone, and rejects any other device set on the unit,
+        an aggregate included (measured). So a chosen microphone that is not
+        that headset's wins, and the echo canceller stays off for this
+        engine; with headphones on there is nothing to cancel.
+        """
+        if not self._voice_processing:
+            return False
+        if not self._input_device:
+            return True
+        out = default_output()
+        if out is None or out.transport != "Bluetooth" or same_headset(self._input_device, out.uid):
+            return True
+        logger.info(
+            f"voice processing off for now: with {out.name} as the output it would use that headset's "
+            f"microphone instead of {self._input_device!r}"
+        )
+        return False
+
+    def _pin_input(self, input_node):
+        if not self._input_device:
+            return
+        if input_device_id(self._input_device) is None:
+            logger.warning(f"input device {self._input_device!r} is not present; using the system default")
+            return
+        if input_device_id(self._input_device) == default_input_id():
+            # The engine follows the system default on its own.
+            logger.info(f"microphone: {self._input_device!r} (the system default)")
+            return
+        out = default_output()
+        if out is None:
+            return
+        wanted = (out.uid, self._input_device)
+        if self._aggregate is not None and self._aggregate_for != wanted:
+            destroy_aggregate(self._aggregate)
+            self._aggregate = None
+        if self._aggregate is None:
+            self._aggregate = create_aggregate(out.uid, self._input_device)
+            self._aggregate_for = wanted
+        if self._aggregate is None or not pin_input_unit(input_node.audioUnit(), self._aggregate):
+            logger.warning(f"could not select input device {self._input_device!r}; using the system default")
+            return
+        logger.info(f"microphone: {self._input_device!r} (with {out.name} as the output)")
+
+    def _remove_tap(self):
+        if self._tap_installed:
+            self._engine.inputNode().removeTapOnBus_(0)
+            self._tap_installed = False
 
     def _install_tap(self):
         input_node = self._engine.inputNode()
@@ -262,29 +347,53 @@ class _Engine:
             loop.call_soon_threadsafe(on_input, pcm, rate)
 
         input_node.installTapOnBus_bufferSize_format_block_(0, int(rate * TAP_BUFFER_SECS), tap_format, tap)
+        self._tap_installed = True
 
     def _on_configuration_change(self, notification):
         if self._loop:
             self._loop.call_soon_threadsafe(self._reconfigure)
 
     def _reconfigure(self):
-        """The default device changed. The engine has stopped; the hardware
-        rate may differ. Reinstall the tap and start again."""
+        """A default device changed, or the unit was reconfigured. The
+        engine has stopped and the hardware rate may differ. Whether voice
+        processing may keep the chosen microphone may have changed too (a
+        headset came or went): then the engine is built again, otherwise
+        the tap is reinstalled and it restarts."""
         was_rate = self._in_rate
         self._running = False
         try:
-            self._engine.inputNode().removeTapOnBus_(0)
-            self._install_tap()
-            self._engine.prepare()
-            ok, error = self._engine.startAndReturnError_(None)
-            if not ok:
+            if self._voice_processing_allowed() != self._vp_active or (self._input_device and not self._vp_active and self._aggregate_for[0] != (default_output().uid if default_output() else "")):
+                self._rebuild()
+                logger.info(f"audio device changed: input {was_rate} -> {self._in_rate} Hz, engine rebuilt")
+                return
+            self._remove_tap()
+            if self._vp_active:
+                self._install_tap()
+            error = self._try_start()
+            if error is not None:
                 logger.error(f"audio engine did not restart after device change: {error}")
                 return
-            self._player.play()
-            self._running = True
             logger.info(f"audio device changed: input {was_rate} -> {self._in_rate} Hz, engine restarted")
         except Exception as e:  # noqa: BLE001 - report, keep the pipeline alive
             logger.error(f"audio engine reconfiguration failed: {e}")
+
+    def _rebuild(self):
+        """Tear the engine down and build a new one with the current choices."""
+        was_running = self._running or not self._built
+        self.stop()
+        self._engine = AVF.AVAudioEngine.alloc().init()
+        self._built = False
+        self._build()
+        if was_running:
+            # The pin makes the unit reconfigure; the first start may fail.
+            error = None
+            for _ in range(START_ATTEMPTS):
+                error = self._try_start()
+                if error is None:
+                    break
+                time.sleep(START_RETRY_SECS)
+            if error is not None:
+                raise RuntimeError(f"AVAudioEngine failed to start: {error}")
 
     def schedule(self, pcm: bytes) -> float:
         """Queue int16 mono output. Returns its duration in seconds."""
@@ -342,7 +451,7 @@ class MacAudioInputTransport(BaseInputTransport):
         await super().start(frame)
         self._queue = asyncio.Queue()
         self._task = self.create_task(self._drain(), name="mic")
-        self._engine.start()
+        await self._engine.start_async()
         await self.set_transport_ready(frame)
         await self._on_ready()
 
@@ -420,7 +529,7 @@ class MacAudioOutputTransport(BaseOutputTransport):
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
-        self._engine.start()
+        await self._engine.start_async()
         await self.set_transport_ready(frame)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):

@@ -95,9 +95,14 @@ it clicks and returns what the window shows afterwards, with the block's
 memories. Then answer with [reply] in two sentences from those memories'
 names, naming the apps and the span. Do not send the user to a search.
 
-[select] clicks without answering, for when you need to see the result
-before you speak (a block's memories, another screen). After [select] you
-must still call [reply]; a request is not done until [reply] is called.
+[select] clicks, or switches screens, without answering, for when you need
+to see the result before you act or speak (a block's memories, the rows of
+another screen). "Open the third search" while Ask or the Viewer is showing
+means: [select] with navigate "searches", then [reply] with `click` on the
+third search row in the state that comes back. Never stop at the navigation
+when the user asked to open, click, or look at a specific item. After
+[select] you must still call [reply]; a request is not done until [reply]
+is called.
 Never answer in plain text. Finish every request with exactly one call to
 [reply]:
 - To open a memory, pass its ref as `click`. To go back, click the "Back"
@@ -140,24 +145,38 @@ class PeekabooUIWorker(UIWorker):
             await self._on_plain_answer(aggregator, message)
 
     @tool
-    async def select(self, params: FunctionCallParams, ref: str):
-        """Click an element and see the window afterwards, without answering yet.
+    async def select(self, params: FunctionCallParams, ref: Optional[str] = None, navigate: Optional[str] = None):
+        """Click an element or switch screens and see the window afterwards, without answering yet.
 
         Use it when what you need appears only after the click, such as the
-        memories of a Timeline block; then call reply.
+        memories of a Timeline block, or when the thing named is on another
+        screen ("the third search" while Ask is showing: navigate to
+        searches first); then call reply.
 
         Args:
             ref: Ref of the element to click, from the current state.
+            navigate: Screen to switch to instead: ask, searches, timeline, watchers, or settings.
         """
         before = self._snapshots
-        await self.click(ref)
+        if navigate:
+            view = navigate.strip().lower()
+            if view in SCREENS:
+                await self.send_command("navigate", Navigate(view=view))
+            else:
+                await params.result_callback(f"No screen named {navigate!r}.")
+                return
+        elif ref:
+            await self.click(ref)
+        else:
+            await params.result_callback("Nothing to select: give a ref or a screen.")
+            return
         # The page redraws and streams a new snapshot within a moment.
         for _ in range(30):
             await asyncio.sleep(0.1)
             if self._snapshots != before:
                 break
         await asyncio.sleep(0.2)
-        await params.result_callback(f"Clicked {ref}. The window now shows:\n{self.render_ui_state()}")
+        await params.result_callback(f"{'Switched to ' + navigate if navigate else 'Clicked ' + str(ref)}. The window now shows:\n{self.render_ui_state()}")
 
     @tool
     async def reply(
