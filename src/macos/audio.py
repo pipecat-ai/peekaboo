@@ -27,6 +27,8 @@ copy bytes and hop into the asyncio loop.
 
 import asyncio
 import math
+import wave
+from pathlib import Path
 import time
 from collections.abc import Callable
 from typing import Optional
@@ -96,6 +98,9 @@ class MacAudioTransportParams(TransportParams):
 
     voice_processing: bool = True
     input_device: str = ""
+    record_input: Optional[Path] = None
+    """A directory to write the microphone audio to as ``mic-raw.wav``, for
+    listening back and running recognizers offline (development)."""
 
 
 class _Engine:
@@ -485,6 +490,14 @@ class MacAudioInputTransport(BaseInputTransport):
         # The microphone level, logged now and then: the first thing to look
         # at when nothing is heard.
         peak, since = 0.0, time.monotonic()
+        recorder = None
+        if self._params.record_input:
+            self._params.record_input.mkdir(parents=True, exist_ok=True)
+            recorder = wave.open(str(self._params.record_input / "mic-raw.wav"), "wb")
+            recorder.setnchannels(1)
+            recorder.setsampwidth(2)
+            recorder.setframerate(self.sample_rate)
+            logger.info(f"recording the microphone to {self._params.record_input / 'mic-raw.wav'}")
         while True:
             pcm, rate = await self._queue.get()
             samples = np.clip(np.frombuffer(pcm, dtype=np.float32), -1.0, 1.0)
@@ -496,6 +509,8 @@ class MacAudioInputTransport(BaseInputTransport):
             audio = (samples * 32767.0).astype(np.int16).tobytes()
             if rate != self.sample_rate:
                 audio = await self._resampler.resample(audio, rate, self.sample_rate)
+            if recorder is not None:
+                recorder.writeframes(audio)
             # The tap hands over 100 ms at a time; the pipeline wants 20 ms.
             for start in range(0, len(audio), chunk_bytes):
                 await self.push_audio_frame(

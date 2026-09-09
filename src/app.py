@@ -135,6 +135,7 @@ class App:
                 audio_out_enabled=True,
                 voice_processing=not self.args.no_voice_processing and bool(settings.get("echo_cancellation", True)),
                 input_device=str(settings.get("input_device") or ""),
+                record_input=self.args.record_mic,
             )
         )
         if self.memories:
@@ -357,8 +358,10 @@ def parse_args():
     parser.add_argument(
         "--stt-model",
         choices=("tiny", "base", "tiny-streaming", "base-streaming", "small-streaming", "medium-streaming"),
-        help="the Moonshine model (default small-streaming; medium-streaming is the most accurate)",
+        default="medium-streaming",
+        help="the Moonshine model (default medium-streaming, the most accurate; small-streaming is lighter)",
     )
+    parser.add_argument("--record-mic", type=Path, metavar="DIR", help="write the microphone audio to DIR as mic-raw.wav, for offline checks")
     parser.add_argument("--open-memories", action="store_true", help="open the memories window on launch")
     parser.add_argument("--snapshot-memories", type=Path, help="write a PNG of the memories page after launch")
     parser.add_argument("--memories-eval", metavar="JS", help="run JavaScript in the memories page after launch")
