@@ -24,14 +24,13 @@ from loguru import logger
 from pipecat.bus.messages import BusMessage
 from pipecat.bus.ui.messages import _UI_SNAPSHOT_BUS_EVENT_NAME, BusUIEventMessage
 from pipecat.processors.frameworks.rtvi.models import Navigate
-from pipecat.services.anthropic.llm import AnthropicLLMService
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.workers.llm.tool_decorator import tool
 from pipecat.workers.ui.ui_worker import UIWorker
 
+import models
 from workers.names import UI_WORKER
 
-UI_MODEL = "claude-haiku-4-5"
 UI_MAX_TOKENS = 400
 # A request to the window agent is closed for it after this long.
 UI_TURN_TIMEOUT_SECS = 12.0
@@ -49,7 +48,11 @@ cards), Searches (past questions), Timeline (a day by the hour), Watchers,
 Settings, in sections: System (Appearance buttons System, Light, Dark; a
 checkbox to start recording at launch), Audio (a "Microphone" dropdown,
 System default or a device by name; an "Echo cancellation" checkbox, off for
-screen recording), Recording (nothing yet): click them to change them, and a Viewer that opens
+screen recording), Models (the Moonshine model, the Kokoro voice, and for
+the Voice LLM and the Vision LLM a provider dropdown, Anthropic
+or OpenAI, and a model box; API key boxes with Save; model changes need the
+"Restart Peekaboo" button), Recording (nothing yet): click them to change
+them, and a Viewer that opens
 when a memory card is clicked. A memory is
 a moment: the Viewer shows the screen at that moment with each captured
 window outlined as a button named "<app>: <title>" (click one to read that
@@ -124,15 +127,13 @@ class PeekabooUIWorker(UIWorker):
     one ``reply`` tool that acts and speaks."""
 
     def __init__(self, name: str = UI_WORKER):
-        llm = AnthropicLLMService(
-            name="UIAnthropicLLMService",
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
+        # The conversation's model: the window agent is its helper.
+        llm = models.make_llm(
+            models.current().voice,
+            name="UILLMService",
+            system_instruction=UI_INSTRUCTION,
+            max_tokens=UI_MAX_TOKENS,
             retry_on_timeout=True,
-            settings=AnthropicLLMService.Settings(
-                model=UI_MODEL,
-                max_tokens=UI_MAX_TOKENS,
-                system_instruction=UI_INSTRUCTION,
-            ),
         )
         super().__init__(name, llm=llm)
         self._snapshots = 0

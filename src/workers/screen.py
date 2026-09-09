@@ -23,13 +23,13 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
-from pipecat.services.anthropic.llm import AnthropicLLMService
 
 from links import find_join_url
 from processors.frames import ScreenFrame
 from processors.gate import ChangeGate
 from processors.screen_bridge import SCREEN_BRIDGE
 from processors.vision import VisionImageContextProcessor, VisionImageProcessor, WatchItem
+import models
 from sources.base import CAPTURE_INTERVAL_SECS, SCREEN_TARGET, BaseFrameSource
 from sources.transport import TransportScreenSource
 from store.models import Observation
@@ -117,7 +117,6 @@ ANNOUNCED_FILE = "announced.json"
 FRAME_JPEG_QUALITY = 80
 
 # Runs on every changed frame, all day: the cheapest capable tier (plan §5).
-SCREEN_MODEL = "claude-haiku-4-5"
 
 IMAGE_SYSTEM_INSTRUCTION = """
 
@@ -311,19 +310,12 @@ class ScreenWorker(PipelineWorker):
         self._frame_source.add_event_handler("on_target_lost", self._on_target_lost)
 
     def _build_pipeline(self) -> Pipeline:
-        llm = AnthropicLLMService(
-            name="ScreenAnthropicLLMService",
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
+        llm = models.make_llm(
+            models.current().vision,
+            name="ScreenLLMService",
+            max_tokens=SCREEN_MAX_TOKENS,
             # A request that hangs on connect is retried once.
             retry_on_timeout=True,
-            settings=AnthropicLLMService.Settings(
-                model=SCREEN_MODEL,
-                max_tokens=SCREEN_MAX_TOKENS,
-                extra={
-                    # Structured outputs are GA: output_config.format, no beta header.
-                    "extra_body": {"output_config": {"format": IMAGE_OUTPUT_FORMAT}},
-                },
-            ),
         )
 
         aggregators = LLMContextAggregatorPair(LLMContext())

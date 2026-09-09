@@ -78,6 +78,25 @@ def relaunch():
     subprocess.Popen(["open", "-n", path], env={**os.environ, "PEEKABOO_RELAUNCHED": "1"})
 
 
+def restart():
+    """Start a fresh copy of the app and quit this one, so choices that are
+    read at launch (the models) take effect. The bundle is reopened; a
+    terminal run is started again with the same arguments."""
+    import os
+    import subprocess
+    import sys
+
+    import AppKit
+    from PyObjCTools import AppHelper
+
+    if bundled():
+        path = str(AppKit.NSBundle.mainBundle().bundlePath())
+        subprocess.Popen(["open", "-n", path])
+    else:
+        subprocess.Popen([sys.executable, *sys.argv], start_new_session=True)
+    AppHelper.callAfter(AppKit.NSApp.terminate_, None)
+
+
 def is_relaunch() -> bool:
     import os
 

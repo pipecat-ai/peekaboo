@@ -49,7 +49,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frame_processor import FrameProcessorSetup
-from pipecat.services.anthropic.llm import AnthropicLLMService
 from pipecat.services.cartesia.tts import CartesiaHttpTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.llm_service import FunctionCallParams
@@ -58,6 +57,7 @@ from pipecat.transports.base_transport import BaseTransport
 
 from moments import Moment, MomentKind, MomentPolicy
 from processors.conversation import ConversationState
+import models
 from processors.wake import LocalTranscriptionFrame, WakeGate
 from processors.screen_bridge import ScreenBridge
 from workers.names import SCREEN_WORKER, UI_WORKER, VISION_WORKER, VOICE_WORKER
@@ -71,7 +71,6 @@ MEETING_MOMENT_LIFETIME_SECS = 20 * 60
 
 # The voice LLM only routes: call a tool or not, and phrase short lines. The
 # fastest tier is the right one; a slower model here is felt on every turn.
-VOICE_MODEL = "claude-haiku-4-5"
 
 # Spoken the moment a screen question goes out, instead of a second LLM call
 # to phrase an acknowledgement. Saves about 1.3 s on every question.
@@ -364,9 +363,10 @@ class VoiceWorker(PipelineWorker):
         ui_worker: str = UI_WORKER,
         screen_from_transport: bool = True,
         open_links: bool = True,
-        speech: SpeechServices = "cloud",
+        speech: SpeechServices = "local",
         stt: Recognizer = "moonshine",
         stt_model: Optional[str] = None,
+        tts_voice: Optional[str] = None,
         registry: Optional["WindowRegistry"] = None,
         on_state: Optional[Callable[[str], None]] = None,
         on_show: Optional[Callable[[list[int]], None]] = None,
@@ -391,7 +391,9 @@ class VoiceWorker(PipelineWorker):
         self._speech = speech
         self._stt = stt
         # A Moonshine model name (see ``pipecat.services.moonshine.stt.Model``); None is the service default.
-        self._stt_model = stt_model
+        self._stt_model = stt_model or models.current().stt_model
+        # The Kokoro voice; the greeting cache is per voice.
+        self._tts_voice = tts_voice or models.current().tts_voice
         # The window registry; BaseWorker owns ``_registry`` (the worker registry).
         self._windows = registry
         self._on_show = on_show
@@ -465,7 +467,7 @@ class VoiceWorker(PipelineWorker):
             from pipecat.services.kokoro.tts import KokoroTTSService
 
             tts = KokoroTTSService(
-                settings=KokoroTTSService.Settings(voice=KOKORO_VOICE),
+                settings=KokoroTTSService.Settings(voice=self._tts_voice),
                 stop_frame_timeout_s=TTS_IDLE_TIMEOUT_SECS,
             )
         else:
@@ -502,20 +504,17 @@ class VoiceWorker(PipelineWorker):
     def _voice_key(self) -> str:
         """Which voice speaks: the greeting cache is per voice."""
         if self._speech == "local":
-            return f"kokoro-{KOKORO_VOICE}"
+            return f"kokoro-{self._tts_voice}"
         return f"cartesia-{os.getenv('CARTESIA_VOICE_ID') or CARTESIA_VOICE}"
 
     def _build_pipeline(self) -> Pipeline:
         *stt, tts = self._speech_services()
 
-        llm = AnthropicLLMService(
-            name="VoiceAnthropicLLMService",
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
-            # A request that hangs on connect is retried once.
+        llm = models.make_llm(
+            models.current().voice,
+            name="VoiceLLMService",
+            system_instruction=SYSTEM_INSTRUCTION,
             retry_on_timeout=True,
-            settings=AnthropicLLMService.Settings(
-                model=VOICE_MODEL, system_instruction=SYSTEM_INSTRUCTION
-            ),
         )
         llm.register_function("look", self._look)
         llm.register_function("watch", self._watch)

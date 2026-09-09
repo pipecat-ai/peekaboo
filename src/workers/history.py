@@ -7,8 +7,6 @@
 import asyncio
 import os
 
-import httpx
-from anthropic import AsyncAnthropic
 from datetime import date, datetime
 from typing import Optional
 
@@ -25,10 +23,10 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
-from pipecat.services.anthropic.llm import AnthropicLLMService
 from pipecat.services.llm_service import FunctionCallParams
 
 from processors.turns import LLMTurnCollector
+import models
 from store.models import Observation
 from store.sqlite_store import SQLiteStore
 from workers.names import HISTORY_WORKER
@@ -143,22 +141,13 @@ class HistoryWorker(PipelineWorker):
         # A stream that stalls after its first token once sat for twelve
         # minutes; the client's read timeout turns that into an error the
         # search can report instead.
-        client = AsyncAnthropic(
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
-            timeout=httpx.Timeout(STREAM_READ_TIMEOUT_SECS, connect=10.0),
-            max_retries=1,
-        )
-        llm = AnthropicLLMService(
-            name="HistoryAnthropicLLMService",
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
-            client=client,
-            settings=AnthropicLLMService.Settings(
-                system_instruction=system_instruction(),
-                max_tokens=self._max_tokens,
-                thinking=AnthropicLLMService.ThinkingConfig(
-                    type="enabled", budget_tokens=self._thinking_budget_tokens
-                ),
-            ),
+        llm = models.make_llm(
+            models.current().voice,
+            name="HistoryLLMService",
+            system_instruction=system_instruction(),
+            max_tokens=self._max_tokens,
+            thinking_budget=self._thinking_budget_tokens,
+            read_timeout_secs=STREAM_READ_TIMEOUT_SECS,
         )
         llm.register_function("search_history", self._search_history)
         llm.register_function("timeline", self._timeline)

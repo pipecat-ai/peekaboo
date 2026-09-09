@@ -27,6 +27,8 @@ from pipecat.pipeline.job_context import JobError, JobParams, JobStatus
 from pipecat.bus.ui.messages import BusUICommandMessage
 from pipecat.workers.base_ui_worker import BaseUIWorker
 
+import models
+from models import DEFAULT_MODEL_SETTINGS
 from macos.memories import MemoriesWindow
 from macos.menubar import MenuBar
 from store.models import Observation
@@ -46,7 +48,13 @@ RECENT_ITEMS = 10
 
 
 # What a fresh install gets: the system's appearance, and recording from launch.
-DEFAULT_SETTINGS = {"theme": "system", "record_on_launch": True, "echo_cancellation": True, "input_device": ""}
+DEFAULT_SETTINGS = {
+    "theme": "system",
+    "record_on_launch": True,
+    "echo_cancellation": True,
+    "input_device": "",
+    **DEFAULT_MODEL_SETTINGS,
+}
 
 
 def load_settings(root: Path) -> dict:
@@ -352,6 +360,46 @@ class ShellWorker(BaseUIWorker):
 
     async def _rpc_settings(self):
         return self._settings()
+
+    async def _rpc_models(self):
+        """The model choices for Settings: providers with their suggested
+        models and whether a key is stored, Moonshine's models, Kokoro's
+        voices, and what runs right now (a change applies at the next launch)."""
+        info = await asyncio.to_thread(models.describe)
+        running = models.current()
+        info["running"] = {
+            "voice_llm": {"provider": running.voice.provider, "model": running.voice.model},
+            "vision_llm": {"provider": running.vision.provider, "model": running.vision.model},
+            "stt_model": running.stt_model,
+            "tts_voice": running.tts_voice,
+        }
+        return info
+
+    async def _rpc_set_api_key(self, provider: str, key: str):
+        """Store a provider's key in the keychain; an empty key removes it."""
+        from macos import keychain
+
+        provider = str(provider)
+        if provider not in models.PROVIDERS:
+            raise ValueError(f"unknown provider {provider!r}")
+        key = str(key or "").strip()
+        ok = await asyncio.to_thread(keychain.set, provider, key) if key else await asyncio.to_thread(keychain.delete, provider)
+        if not ok and key:
+            raise RuntimeError("the keychain refused the key")
+        logger.info(f"{self}: API key for {provider} {'stored' if key else 'removed'}")
+        return {"provider": provider, "has_key": bool(models.api_key(provider))}
+
+    async def _rpc_restart(self):
+        """Start the app again so new model choices take effect."""
+        logger.info(f"{self}: restarting to apply settings")
+        self.create_task(self._restart_soon())
+        return {"restarting": True}
+
+    async def _restart_soon(self):
+        from macos.permissions import restart
+
+        await asyncio.sleep(0.3)  # the response reaches the page first
+        restart()
 
     async def _rpc_input_devices(self):
         """The microphones present now, for the Settings picker."""

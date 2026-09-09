@@ -28,9 +28,9 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
-from pipecat.services.anthropic.llm import AnthropicLLMService
 from pipecat.services.llm_service import FunctionCallParams
 
+import models
 from processors.frames import QuestionFrame
 from processors.turns import LLMTurnCollector
 from processors.vision import VisionQueryProcessor
@@ -46,7 +46,6 @@ CONTEXT_OBSERVATIONS = 8
 
 # A look runs rarely and has to read exact text off a picture: the strongest
 # tier (plan §5). Adaptive thinking, with the thinking text left out.
-VISION_MODEL = "claude-opus-5"
 
 # A look that has not been answered by then is failed, so a hung model call
 # becomes a spoken apology rather than silence. Looks waiting on the history
@@ -137,15 +136,12 @@ class VisionWorker(PipelineWorker):
         turns.add_event_handler("on_turn", self._on_turn)
 
     def _build_pipeline(self, turns: LLMTurnCollector) -> Pipeline:
-        llm = AnthropicLLMService(
-            name="VisionAnthropicLLMService",
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
+        llm = models.make_llm(
+            models.current().vision,
+            name="VisionLLMService",
+            adaptive_thinking=True,
             # A request that hangs on connect is retried once.
             retry_on_timeout=True,
-            settings=AnthropicLLMService.Settings(
-                model=VISION_MODEL,
-                thinking=AnthropicLLMService.ThinkingConfig(type="adaptive", display="omitted"),
-            ),
         )
         llm.register_function("start_history_agent", self._start_history)
 

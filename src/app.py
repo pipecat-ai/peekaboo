@@ -49,6 +49,7 @@ from store.sqlite_store import SQLiteStore
 from workers.history import HistoryWorker
 from workers.screen import ScreenWorker
 from workers.names import UI_WORKER
+import models
 from workers.shell import ShellWorker, load_settings
 from workers.ui import PeekabooUIWorker
 from workers.vision import VisionWorker
@@ -59,8 +60,6 @@ APP_ICON = Path(__file__).parent / "macos" / "assets" / "appicon.png"
 # Plan §5: the store lives where Mac apps keep their data.
 DEFAULT_STORE = Path("~/Library/Application Support/Peekaboo").expanduser()
 
-# With --local-speech only the LLM needs a key; Deepgram's only when chosen.
-CLOUD_SPEECH_KEYS = ("CARTESIA_API_KEY",)
 
 
 class App:
@@ -129,6 +128,12 @@ class App:
         # voice processing muffles other apps' microphone capture); the flag
         # forces it off for measurement.
         settings = load_settings(store.root)
+        # The models, from Settings; a change there applies at the next launch.
+        models.configure(models.Models.from_settings(settings))
+        self._missing_keys = models.missing_keys()
+        if self._missing_keys:
+            names = ", ".join(models.PROVIDERS[p]["name"] for p in self._missing_keys)
+            logger.warning(f"no API key for {names}: the conversation will not work until one is entered in Settings")
         transport = MacAudioTransport(
             MacAudioTransportParams(
                 audio_in_enabled=True,
@@ -170,7 +175,7 @@ class App:
             transport,
             screen_from_transport=False,
             open_links=True,
-            speech="local" if self.args.local_speech else "cloud",
+            speech="cloud" if self.args.tts == "cartesia" else "local",
             stt=self.args.stt,
             stt_model=self.args.stt_model,
             registry=registry,
@@ -233,6 +238,9 @@ class App:
 
         @transport.event_handler("on_ready")
         async def on_ready(transport):
+            if self._missing_keys:
+                # Nothing to talk with yet: open the window on Settings.
+                self.shell.show_screen("settings")
             recording = self.shell.settings().get("record_on_launch", True)
             logger.info(f"audio is up; starting the conversation ({'recording' if recording else 'not recording'})")
             self.shell.set_recording_state(recording)
@@ -345,9 +353,10 @@ def parse_args():
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE, help="where the database and frames live")
     parser.add_argument("--no-voice-processing", action="store_true", help="disable the OS echo canceller")
     parser.add_argument(
-        "--local-speech",
-        action="store_true",
-        help="Moonshine and Kokoro on the machine instead of Cartesia speaking",
+        "--tts",
+        choices=("kokoro", "cartesia"),
+        default="kokoro",
+        help="who speaks: Kokoro on the machine (default) or Cartesia",
     )
     parser.add_argument(
         "--stt",
@@ -358,8 +367,7 @@ def parse_args():
     parser.add_argument(
         "--stt-model",
         choices=("tiny", "base", "tiny-streaming", "base-streaming", "small-streaming", "medium-streaming"),
-        default="medium-streaming",
-        help="the Moonshine model (default medium-streaming, the most accurate; small-streaming is lighter)",
+        help="the Moonshine model, overriding Settings (medium-streaming unless changed there)",
     )
     parser.add_argument("--record-mic", type=Path, metavar="DIR", help="write the microphone audio to DIR as mic-raw.wav, for offline checks")
     parser.add_argument("--open-memories", action="store_true", help="open the memories window on launch")
@@ -379,7 +387,11 @@ def main() -> int:
     logger.add(sys.stderr, level=level)
 
     load_dotenv(override=True)
-    required = ("ANTHROPIC_API_KEY",) + (() if args.local_speech else CLOUD_SPEECH_KEYS)
+    # LLM keys come from Settings (the keychain) or the environment; the app
+    # comes up without them and says so. Cloud speech, when chosen, needs its keys.
+    required = ()
+    if args.tts == "cartesia":
+        required += ("CARTESIA_API_KEY",)
     if args.stt == "deepgram":
         required += ("DEEPGRAM_API_KEY",)
     missing = [k for k in required if not os.getenv(k)]

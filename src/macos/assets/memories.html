@@ -272,6 +272,11 @@
   .settings-sec .eyebrow { padding-bottom: 4px; border-bottom: 1px solid var(--line-strong); }
   .settings-sec .setting:last-child { border-bottom: 0; }
   .settings-sec .empty { padding: 14px 0; text-align: left; }
+  .setting .row { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .setting .fixed { font-size: 13px; color: var(--muted); }
+  .select.model { width: 180px; }
+  .select.key { width: 240px; font: 12.5px var(--mono); }
+  .restartnote { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; padding: 10px 14px; border-radius: 9px; background: var(--amber-soft, rgba(245, 158, 11, .12)); color: var(--text); font-size: 13px; }
   .seg { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; font-size: 12px; }
   .seg span { padding: 4px 12px; } .seg span.on { background: var(--accent); color: #fff; font-weight: 500; }
   .check { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; flex-shrink: 0; }
@@ -444,6 +449,34 @@
         <input type="checkbox" id="echocancel" class="check" checked aria-label="Echo cancellation">
       </div>
       </div>
+      <div class="settings-sec" role="group" aria-label="Models">
+      <div class="eyebrow">Models</div>
+      <div class="setting">
+        <div><div class="label">Speech recognition and wake word</div><div class="help">Moonshine, on this Mac. Nothing you say leaves it until Peekaboo is awake. Larger models hear better and take more memory.</div></div>
+        <div class="row"><span class="fixed">Moonshine (local)</span><select id="sttmodel" class="select" aria-label="Moonshine model"></select></div>
+      </div>
+      <div class="setting">
+        <div><div class="label">Voice</div><div class="help">Kokoro, on this Mac.</div></div>
+        <div class="row"><span class="fixed">Kokoro (local)</span><select id="ttsvoice" class="select" aria-label="Kokoro voice"></select></div>
+      </div>
+      <div class="setting">
+        <div><div class="label">Voice LLM</div><div class="help">The model behind the conversation, the window agent, and answers about your day.</div></div>
+        <div class="row"><select id="voiceprov" class="select" aria-label="Voice LLM provider"></select><input id="voicemodel" class="select model" list="voicemodels" aria-label="Voice LLM model" spellcheck="false"><datalist id="voicemodels"></datalist></div>
+      </div>
+      <div class="setting">
+        <div><div class="label">Vision LLM</div><div class="help">The model that describes what is on screen and answers "look" questions. It sees every frame, so cost follows this one.</div></div>
+        <div class="row"><select id="visionprov" class="select" aria-label="Vision LLM provider"></select><input id="visionmodel" class="select model" list="visionmodels" aria-label="Vision LLM model" spellcheck="false"><datalist id="visionmodels"></datalist></div>
+      </div>
+      <div class="setting" id="key-anthropic">
+        <div><div class="label">Anthropic API key</div><div class="help keystate"></div></div>
+        <div class="row"><input type="password" class="select key" placeholder="sk-ant-…" aria-label="Anthropic API key" autocomplete="off" spellcheck="false"><button class="btn small save">Save</button></div>
+      </div>
+      <div class="setting" id="key-openai">
+        <div><div class="label">OpenAI API key</div><div class="help keystate"></div></div>
+        <div class="row"><input type="password" class="select key" placeholder="sk-…" aria-label="OpenAI API key" autocomplete="off" spellcheck="false"><button class="btn small save">Save</button></div>
+      </div>
+      <div class="restartnote" id="restartnote" hidden role="status"><span>Model changes apply when Peekaboo starts again.</span><button class="btn small primary" id="restartbtn" aria-label="Restart Peekaboo">Restart Peekaboo</button></div>
+      </div>
       <div class="settings-sec" role="group" aria-label="Recording">
       <div class="eyebrow">Recording</div>
       <div class="empty">Which apps to leave out and how long to keep memories come next.</div>
@@ -551,7 +584,7 @@ let playing = null;
 
 function show(name) {
   // The microphone list is read from the OS each time Settings is shown.
-  try { if (name === "settings" && settings) loadMicrophones(); } catch (e) { /* before settings load */ }
+  try { if (name === "settings" && settings) { loadMicrophones(); loadModels(); } } catch (e) { /* before settings load */ }
   if (name === "searches") loadSearches();
   if (name !== "viewer") lastScreen = name;
   screen = name;
@@ -1201,6 +1234,84 @@ async function loadMicrophones() {
     + (chosen && !devices.some((d) => d.uid === chosen) ? `<option value="${esc(chosen)}">${esc(chosen)} (not connected)</option>` : "");
   sel.value = chosen;
 }
+// ---- models ---------------------------------------------------------------
+// Speech stays local (Moonshine hears, Kokoro speaks); the two LLMs are a
+// provider and a model each, with one key per provider in the keychain. A
+// change is saved at once and applies when the app starts again.
+let modelInfo = null;
+const PROVIDER_ORDER = ["anthropic", "openai"];
+function fillSelect(sel, values, current, label) {
+  sel.innerHTML = values.map((v) => `<option value="${esc(v)}">${esc(label ? label(v) : v)}</option>`).join("");
+  if (current && !values.includes(current)) sel.insertAdjacentHTML("beforeend", `<option value="${esc(current)}">${esc(current)}</option>`);
+  sel.value = current || values[0] || "";
+}
+function fillModels(prov, listId, input, current) {
+  const p = (modelInfo.providers || []).find((x) => x.id === prov);
+  $("#" + listId).innerHTML = (p ? p.models : []).map((m) => `<option value="${esc(m)}">`).join("");
+  input.value = current || (p && p.models[0]) || "";
+  input.placeholder = p && p.models[0] ? p.models[0] : "model";
+}
+function llmSetting(key) { const v = settings[key]; return v && typeof v === "object" ? v : { provider: "anthropic", model: "" }; }
+function renderModels() {
+  if (!modelInfo) return;
+  fillSelect($("#sttmodel"), modelInfo.moonshine_models || [], settings.stt_model, null);
+  fillSelect($("#ttsvoice"), modelInfo.kokoro_voices || [], settings.tts_voice, null);
+  const provs = PROVIDER_ORDER.filter((p) => (modelInfo.providers || []).some((x) => x.id === p));
+  const names = Object.fromEntries((modelInfo.providers || []).map((p) => [p.id, p.name]));
+  for (const [key, provSel, modelInput, listId] of [["voice_llm", "#voiceprov", "#voicemodel", "voicemodels"], ["vision_llm", "#visionprov", "#visionmodel", "visionmodels"]]) {
+    const cur = llmSetting(key);
+    fillSelect($(provSel), provs, cur.provider, (p) => names[p] || p);
+    fillModels($(provSel).value, listId, $(modelInput), cur.model);
+  }
+  for (const p of modelInfo.providers || []) {
+    const row = $("#key-" + p.id); if (!row) continue;
+    row.querySelector(".keystate").textContent = p.key_source === "keychain" ? "A key is stored in your keychain. Enter a new one to replace it."
+      : p.key_source === "env" ? "Using the key from the environment (.env). Save one here to keep it in your keychain instead."
+      : "No key yet. Paste one and press Save; it goes to your keychain.";
+    row.dataset.hasKey = p.has_key ? "1" : "";
+  }
+  checkRestart();
+}
+function checkRestart() {
+  const r = modelInfo && modelInfo.running; if (!r) return;
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const changed = !same(llmSetting("voice_llm"), r.voice_llm) || !same(llmSetting("vision_llm"), r.vision_llm)
+    || (settings.stt_model || "") !== r.stt_model || (settings.tts_voice || "") !== r.tts_voice;
+  $("#restartnote").hidden = !changed;
+}
+async function loadModels() {
+  try { modelInfo = await call("models", {}); } catch (e) { plog("models: " + e); return; }
+  renderModels();
+}
+async function saveModelSetting(key, value) { settings[key] = value; await call("set_setting", { key, value }); checkRestart(); }
+$("#sttmodel").onchange = (e) => saveModelSetting("stt_model", e.target.value);
+$("#ttsvoice").onchange = (e) => saveModelSetting("tts_voice", e.target.value);
+for (const [key, provSel, modelInput, listId] of [["voice_llm", "#voiceprov", "#voicemodel", "voicemodels"], ["vision_llm", "#visionprov", "#visionmodel", "visionmodels"]]) {
+  $(provSel).onchange = (e) => {
+    const p = (modelInfo.providers || []).find((x) => x.id === e.target.value);
+    fillModels(e.target.value, listId, $(modelInput), p && p.models[0]);
+    saveModelSetting(key, { provider: e.target.value, model: $(modelInput).value });
+  };
+  $(modelInput).onchange = (e) => saveModelSetting(key, { provider: $(provSel).value, model: e.target.value.trim() });
+}
+for (const row of document.querySelectorAll("[id^='key-']")) {
+  const provider = row.id.slice(4), input = row.querySelector(".key"), btn = row.querySelector(".save");
+  const save = async () => {
+    btn.disabled = true;
+    try {
+      const r = await call("set_api_key", { provider, key: input.value });
+      input.value = "";
+      row.querySelector(".keystate").textContent = r.has_key ? "Saved to your keychain. Restart Peekaboo to use it." : "Key removed.";
+      if (modelInfo) { const p = modelInfo.providers.find((x) => x.id === provider); if (p) p.has_key = r.has_key; }
+      $("#restartnote").hidden = false;
+    } catch (e) { row.querySelector(".keystate").textContent = "Could not save the key: " + e; }
+    finally { btn.disabled = false; }
+  };
+  btn.onclick = save;
+  input.onkeydown = (e) => { if (e.key === "Enter") save(); };
+}
+$("#restartbtn").onclick = async () => { $("#restartbtn").disabled = true; try { await call("restart", {}); } catch (e) { $("#restartbtn").disabled = false; } };
+
 $("#micsel").onchange = async (e) => {
   settings.input_device = e.target.value;
   await call("set_setting", { key: "input_device", value: settings.input_device });
@@ -1213,7 +1324,7 @@ $("#recordlaunch").onchange = async (e) => {
   settings.record_on_launch = e.target.checked;
   await call("set_setting", { key: "record_on_launch", value: settings.record_on_launch });
 };
-async function loadSettings() { settings = await call("settings", {}); applyTheme(settings.theme || "system"); applyRecordSetting(); await loadMicrophones(); }
+async function loadSettings() { settings = await call("settings", {}); applyTheme(settings.theme || "system"); applyRecordSetting(); await loadMicrophones(); await loadModels(); }
 
 // ---- status footer ----------------------------------------------------
 let lastToday = null;

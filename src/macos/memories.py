@@ -52,7 +52,11 @@ class _Handler(NSObject):
     def userContentController_didReceiveScriptMessage_(self, controller, message):
         body = message.body()
         try:
-            data = dict(body)
+            # Plain Python all the way down: the bridge hands over Foundation
+            # collections, which nothing downstream (JSON, the bus) can take.
+            data = _plain(body)
+            if not isinstance(data, dict):
+                raise TypeError("not an object")
         except (TypeError, ValueError):
             logger.warning(f"memories: bad message from page: {body!r}")
             return
@@ -60,6 +64,25 @@ class _Handler(NSObject):
 
     def windowWillClose_(self, notification):
         self._window._on_close()
+
+
+def _plain(value):
+    """A Foundation object graph from the web view as dicts, lists, and scalars."""
+    if isinstance(value, dict) or type(value).__name__.startswith(("NSDictionary", "__NSDictionary", "NSMutableDictionary")):
+        return {str(k): _plain(v) for k, v in dict(value).items()}
+    if isinstance(value, (list, tuple)) or type(value).__name__.startswith(("NSArray", "__NSArray", "NSMutableArray")):
+        return [_plain(v) for v in list(value)]
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        return str(value)
+    name = type(value).__name__
+    if "Number" in name or "Boolean" in name:
+        f = float(value)
+        return int(f) if f.is_integer() and "Boolean" not in name else (bool(value) if "Boolean" in name else f)
+    return str(value)
 
 
 class MemoriesWindow:
