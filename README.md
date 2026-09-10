@@ -2,7 +2,7 @@
  <img alt="pipecat" width="300px" height="auto" src="https://raw.githubusercontent.com/pipecat-ai/pipecat/main/pipecat.png">
 </div></h1>
 
-# 🐈‍⬛ Peekaboo
+# Peekaboo
 
 **A voice assistant for your Mac that remembers your screen.** Built with
 [Pipecat](https://github.com/pipecat-ai/pipecat).
@@ -44,13 +44,6 @@ the menu bar cat, and paste an Anthropic or OpenAI API key in
 Settings ▸ Models. It is stored in your keychain. Then say
 "Peekaboo, what's on my screen?"
 
-To run it as an app:
-
-```bash
-uv run tools/make_app.py
-open dist/Peekaboo.app
-```
-
 ## 🔧 Built on Pipecat
 
 Peekaboo is a showcase of Pipecat on a desktop:
@@ -67,9 +60,3 @@ Peekaboo is a showcase of Pipecat on a desktop:
 uv run --with pytest pytest tests/            # unit tests
 uv run evals/run.py --start-bot evals/*.yaml  # headless scenarios
 ```
-
-`PLAN.md` is the design and the record of what was tried and decided.
-
-## License
-
-BSD 2-Clause, as noted in each source file.

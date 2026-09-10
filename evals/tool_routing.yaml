@@ -65,3 +65,10 @@ turns:
       - event: function_call
         absent: true
         within_ms: 3000
+
+  # Moving in time is window navigation: the window knows what day it is.
+  - user: "Can we go to last Friday?"
+    expect:
+      - event: function_call
+        calls:
+          - name: window
