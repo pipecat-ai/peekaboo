@@ -180,6 +180,29 @@ def make_llm(
     return AnthropicLLMService(name=name, api_key=key, settings=AnthropicLLMService.Settings(**settings), **kwargs)
 
 
+def explain_error(error: str, choice: ModelChoice) -> str:
+    """One spoken sentence for an API failure: what went wrong and where to
+    fix it, without the raw error."""
+    name = PROVIDERS.get(choice.provider, {}).get("name", choice.provider)
+    text = str(error or "")
+    low = text.lower()
+    if "401" in low or "authentication" in low or "invalid x-api-key" in low or "incorrect api key" in low or "api key" in low and "invalid" in low:
+        return f"The {name} API key isn't valid. Check it in Settings."
+    if "403" in low or "permission" in low:
+        return f"{name} refused the request. Check what the API key is allowed to do."
+    if "429" in low or "rate limit" in low or "rate_limit" in low or "overloaded" in low or "529" in low:
+        return f"{name} is rate-limiting me right now. Try again in a moment."
+    if "404" in low or "not_found" in low or "not found" in low or "does not exist" in low:
+        return f"The model {choice.model} isn't available on {name}. Pick another in Settings."
+    if "insufficient_quota" in low or "billing" in low or "credit" in low:
+        return f"The {name} account is out of credit."
+    if "timeout" in low or "timed out" in low or "connection" in low or "connect" in low or "network" in low or "unreachable" in low:
+        return f"I can't reach {name} right now. Check the connection."
+    if "400" in low or "invalid_request" in low:
+        return f"{name} rejected the request for {choice.model}. Try another model in Settings."
+    return f"Something went wrong with {name}."
+
+
 def kokoro_voices() -> list[str]:
     """The voices Kokoro has on this machine (its voices file), else the known list."""
     path = Path(os.path.expanduser("~/.cache/pipecat/kokoro-onnx/voices-v1.0.bin"))

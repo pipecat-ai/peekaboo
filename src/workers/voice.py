@@ -5,6 +5,7 @@
 #
 
 import asyncio
+import time
 import hashlib
 from datetime import datetime
 import io
@@ -75,6 +76,9 @@ MEETING_MOMENT_LIFETIME_SECS = 20 * 60
 
 # Spoken the moment a screen question goes out, instead of a second LLM call
 # to phrase an acknowledgement. Saves about 1.3 s on every question.
+# The same API failure is explained aloud at most this often.
+EXPLAIN_EVERY_SECS = 60.0
+
 LOOK_FILLER = "One moment."
 REMEMBER_FILLER = "Let me think back."
 WATCH_FILLER = "I'll let you know."
@@ -458,6 +462,13 @@ class VoiceWorker(LLMWorker):
         # spoken while the job it started runs, not after the tool returns.
         super().__init__(VOICE_WORKER, llm=llm, pipeline=pipeline, active=True, defer_tool_frames=False)
 
+        # An API failure is said in one sentence, once a minute per cause.
+        self._explained: dict[str, float] = {}
+
+        @self.event_handler("on_pipeline_error")
+        async def _on_pipeline_error(worker, frame):
+            await self._explain(str(getattr(frame, "error", frame)))
+
     def _speech_services(self) -> list[FrameProcessor]:
         """The recognition stage and the synthesizer: ``[*stt, tts]``.
 
@@ -614,6 +625,21 @@ class VoiceWorker(LLMWorker):
         if cached:
             self._greeting_recorder.arm(cached)
         await self.say(text)
+
+    async def _explain(self, error: str):
+        text = models.explain_error(error, models.current().voice)
+        logger.warning(f"{self}: {text} ({error[:160]})")
+        self._say_once(MomentKind.WARNING, text)
+
+    def _say_once(self, kind: MomentKind, text: str):
+        """A warning or an apology is said once a minute, whichever worker it
+        came from: the same failure reaches this worker by several routes."""
+        now = time.monotonic()
+        if now - self._explained.get(text, -EXPLAIN_EVERY_SECS) < EXPLAIN_EVERY_SECS:
+            logger.debug(f"{self}: not repeating: {text[:60]!r}")
+            return
+        self._explained[text] = now
+        self._moments.enqueue(Moment(kind=kind, text=text))
 
     async def say(self, text: str):
         """Speak text directly, bypassing the LLM.
@@ -922,9 +948,9 @@ class VoiceWorker(LLMWorker):
             return
         warning = update.get("warning")
         if warning:
-            # A watched window went out of sight, or came back. Spoken for
-            # now; once the ui worker exists these become banners by default.
-            self._moments.enqueue(Moment(kind=MomentKind.WARNING, text=warning))
+            # A watched window went out of sight or came back, or a model is
+            # failing. Spoken, but never the same line twice in a minute.
+            self._say_once(MomentKind.WARNING, warning)
             return
         text = update.get("say")
         if text:
@@ -953,4 +979,4 @@ class VoiceWorker(LLMWorker):
         self._watch_jobs.discard(message.job_id)
         logger.warning(f"{self}: job {message.job_id} failed: {message.response}")
         text = (message.response or {}).get("answer") or "Sorry, I couldn't check that."
-        self._moments.enqueue(Moment(kind=MomentKind.ANSWER, text=text))
+        self._say_once(MomentKind.ANSWER, text)

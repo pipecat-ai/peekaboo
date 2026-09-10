@@ -62,6 +62,8 @@ NOTIFICATION_WATCH = WatchItem(
 # One watcher may match the same event twice, once from a window changing
 # and once from its banner; after a hit it stays quiet this long.
 HIT_COOLDOWN_SECS = 60.0
+# A failing description model is mentioned aloud at most this often.
+FAILURE_WARN_EVERY_SECS = 10 * 60.0
 
 
 def _split_wanted(wanted: str) -> tuple[str, str]:
@@ -279,6 +281,8 @@ class ScreenWorker(PipelineWorker):
         self._restored = False
         # Who wants on-screen reminders, and which were announced recently.
         self._subscribers: list[str] = []
+        # When descriptions fail (a bad key), said once in a while, not per frame.
+        self._last_failure_warning = 0.0
         # The latest frame seen per target, and who is waiting for the next one.
         self._latest: dict[str, ScreenFrame] = {}
         self._waiting: dict[str, list[asyncio.Future]] = {}
@@ -303,6 +307,11 @@ class ScreenWorker(PipelineWorker):
             idle_timeout_secs=None,
             **kwargs,
         )
+
+        # A failing description model is said aloud, rarely (see _on_pipeline_error).
+        @self.event_handler("on_pipeline_error")
+        async def _on_error(worker, frame):
+            await self._on_pipeline_error(frame)
 
         self._gate.add_event_handler("on_screen_frame", self._on_screen_frame)
         self._image_processor.add_event_handler("on_watchlist_hit", self._on_watchlist_hit)
@@ -601,6 +610,16 @@ class ScreenWorker(PipelineWorker):
 
     def _watchers_on(self, target: str) -> list[Watcher]:
         return [w for w in self._watchers.values() if w.target == target and w.enabled]
+
+    async def _on_pipeline_error(self, frame):
+        now = time.monotonic()
+        if now - self._last_failure_warning < FAILURE_WARN_EVERY_SECS:
+            return
+        self._last_failure_warning = now
+        text = "I can't describe the screen: " + models.explain_error(str(getattr(frame, "error", frame)), models.current().vision)
+        logger.warning(f"{self}: {text}")
+        for job_id in list(self._subscribers):
+            await self.send_job_update(job_id, {"warning": text}, urgent=True)
 
     @job(name="subscribe")
     async def _subscribe(self, message: BusJobRequestMessage):

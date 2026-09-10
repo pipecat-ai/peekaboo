@@ -146,3 +146,14 @@ def test_exclusions_setting_is_normalized():
     cleaned = normalize([{"bundle_id": "com.a", "name": "A"}, "com.b", {"bundle_id": "com.a", "name": "again"}, {"name": "no id"}, 7])
     assert cleaned == [{"bundle_id": "com.a", "name": "A"}, {"bundle_id": "com.b", "name": "com.b"}]
     assert normalize("garbage") == []
+
+
+def test_api_errors_are_explained_in_one_sentence():
+    from models import ModelChoice, explain_error
+
+    anthropic = ModelChoice("anthropic", "claude-haiku-4-5")
+    assert explain_error("Error code: 401 - {'type': 'authentication_error', 'message': 'invalid x-api-key'}", anthropic) == "The Anthropic API key isn't valid. Check it in Settings."
+    assert "rate-limiting" in explain_error("Error code: 429 - rate_limit_error", anthropic)
+    assert "claude-haiku-4-5" in explain_error("Error code: 404 - model not_found", anthropic)
+    assert "reach Anthropic" in explain_error("Connection error: timed out", anthropic)
+    assert explain_error("something odd", ModelChoice("openai", "gpt-4.1")) == "Something went wrong with OpenAI."

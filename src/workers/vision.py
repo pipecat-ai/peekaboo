@@ -137,6 +137,11 @@ class VisionWorker(LLMWorker):
         async def _on_turn_stopped(aggregator, message):
             await self._on_turn(aggregator, message)
 
+        # An API failure fails the look now, with the cause, rather than at the deadline.
+        @self.event_handler("on_pipeline_error")
+        async def _on_pipeline_error(worker, frame):
+            await self._fail_look(models.explain_error(str(getattr(frame, "error", frame)), models.current().vision))
+
     #
     # Jobs
     #
@@ -212,6 +217,16 @@ class VisionWorker(LLMWorker):
             status=JobStatus.ERROR,
             urgent=True,
         )
+
+    async def _fail_look(self, text: str):
+        job_id = self._current_look
+        if job_id is None or job_id in self._history_to_look.values():
+            return
+        logger.warning(f"{self}: look {job_id[:8]} failed: {text}")
+        self._current_look = None
+        await self._disarm_deadline()
+        self._look_sources.pop(job_id, None)
+        await self.send_job_response(job_id, {"answer": text}, status=JobStatus.ERROR, urgent=True)
 
     async def _fresh_frame(self, target: str = "") -> Optional[dict]:
         """A picture of the target right now, from the screen worker."""

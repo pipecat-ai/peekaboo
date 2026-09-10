@@ -128,6 +128,12 @@ class HistoryWorker(LLMContextWorker):
         async def _on_turn_stopped(aggregator, message):
             await self._on_turn(aggregator, message)
 
+        # An API failure fails the search now, with the cause.
+        @self.event_handler("on_pipeline_error")
+        async def _on_pipeline_error(worker, frame):
+            if self._answer and not self._answer.done():
+                self._answer.set_exception(RuntimeError(models.explain_error(str(getattr(frame, "error", frame)), models.current().voice)))
+
     @job(name="search", sequential=True)
     async def _search(self, message: BusJobRequestMessage):
         query = str((message.payload or {}).get("query", ""))
@@ -154,6 +160,10 @@ class HistoryWorker(LLMContextWorker):
                 status=JobStatus.ERROR,
                 urgent=True,
             )
+            return
+        except RuntimeError as e:
+            logger.warning(f"{self}: search failed: {e}")
+            await self.send_job_response(message.job_id, {"answer": str(e)}, status=JobStatus.ERROR, urgent=True)
             return
         finally:
             self._job_id = None

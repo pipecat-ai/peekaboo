@@ -147,6 +147,15 @@ class PeekabooUIWorker(UIWorker):
         async def _on_turn_stopped(aggregator, message):
             await self._on_plain_answer(aggregator, message)
 
+        # An API failure answers the request instead of leaving it to time out.
+        @self.event_handler("on_pipeline_error")
+        async def _on_pipeline_error(worker, frame):
+            text = models.explain_error(str(getattr(frame, "error", frame)), models.current().voice)
+            logger.warning(f"{self}: {text}")
+            # Spoken as the reply and the request completed: an error status
+            # would have the voice worker apologise on top of it.
+            await self.respond_to_job(text, tts_speak=True)
+
     @tool
     async def select(
         self,
