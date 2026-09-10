@@ -28,6 +28,7 @@ from pipecat.bus.ui.messages import BusUICommandMessage
 from pipecat.workers.base_ui_worker import BaseUIWorker
 
 import models
+from exclusions import DEFAULT_EXCLUDED_APPS
 from models import DEFAULT_MODEL_SETTINGS
 from macos.memories import MemoriesWindow
 from macos.menubar import MenuBar
@@ -53,6 +54,7 @@ DEFAULT_SETTINGS = {
     "record_on_launch": True,
     "echo_cancellation": True,
     "input_device": "",
+    "excluded_apps": DEFAULT_EXCLUDED_APPS,
     **DEFAULT_MODEL_SETTINGS,
 }
 
@@ -400,6 +402,14 @@ class ShellWorker(BaseUIWorker):
 
         await asyncio.sleep(0.3)  # the response reaches the page first
         restart()
+
+    async def _rpc_running_apps(self):
+        """The regular apps running now, for the exclusions picker."""
+        if self._windows is None:
+            return {"apps": []}
+        own = self._windows.own_pid
+        apps = {a.bundle_id: a.name for a in self._windows.apps if a.pid != own and a.bundle_id}
+        return {"apps": [{"bundle_id": b, "name": n} for b, n in sorted(apps.items(), key=lambda x: x[1].lower())]}
 
     async def _rpc_input_devices(self):
         """The microphones present now, for the Settings picker."""

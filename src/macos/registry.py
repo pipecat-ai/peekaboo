@@ -312,6 +312,8 @@ class WindowRegistry:
         self._interval = interval
         self._min_size = min_size
         self._own_pid = os.getpid()
+        # Apps the user never wants recorded, on top of EXCLUDED_BUNDLES.
+        self._excluded_apps: frozenset[str] = frozenset()
         self._windows: dict[int, Window] = {}
         self._apps: dict[int, App] = {}
         self._sc_windows: dict[int, object] = {}
@@ -352,6 +354,21 @@ class WindowRegistry:
 
     def sc_app(self, pid: int):
         return self._sc_apps.get(pid)
+
+    @property
+    def excluded_apps(self) -> frozenset[str]:
+        """Bundle ids the user excluded; their windows are not in the registry."""
+        return self._excluded_apps
+
+    def set_excluded_apps(self, bundle_ids):
+        """Change which apps are left out; the next snapshot applies it and
+        reports their windows as closed."""
+        self._excluded_apps = frozenset(bundle_ids)
+
+    def sc_apps_for(self, bundle_ids) -> list:
+        """The ``SCRunningApplication`` of each running app in ``bundle_ids``."""
+        wanted = set(bundle_ids)
+        return [sc for sc in self._sc_apps.values() if str(sc.bundleIdentifier() or "") in wanted]
 
     def app(self, pid: int) -> Optional[App]:
         return self._apps.get(pid)
@@ -450,16 +467,15 @@ class WindowRegistry:
             raw.append(window)
             sc_windows[window.id] = w
 
-        kept = content_windows(raw, own_pid=self._own_pid, min_size=self._min_size, regular_pids=regular)
+        excluded = EXCLUDED_BUNDLES | self._excluded_apps
+        kept = content_windows(raw, own_pid=self._own_pid, min_size=self._min_size, excluded=excluded, regular_pids=regular)
         new = {w.id: w for w in kept}
         # The first snapshot is the baseline, not forty "opened" events.
         events = diff(self._windows, new) if self._primed else []
         self._primed = True
 
         self._windows = new
-        self._apps = {
-            pid: a for pid, a in apps.items() if a.bundle_id not in EXCLUDED_BUNDLES and pid in regular
-        }
+        self._apps = {pid: a for pid, a in apps.items() if a.bundle_id not in excluded and pid in regular}
         self._sc_windows = {wid: sc_windows[wid] for wid in new}
         self._sc_apps = sc_apps
         self._banners = [

@@ -48,6 +48,7 @@ from store.sqlite_store import SQLiteStore
 from workers.history import HistoryWorker
 from workers.screen import ScreenWorker
 from workers.names import UI_WORKER
+import exclusions
 import models
 from workers.shell import ShellWorker, load_settings
 from workers.ui import PeekabooUIWorker
@@ -127,6 +128,8 @@ class App:
         # voice processing muffles other apps' microphone capture); the flag
         # forces it off for measurement.
         settings = load_settings(store.root)
+        # Apps never recorded: out of the registry, and cut out of the screen still.
+        registry.set_excluded_apps(exclusions.bundle_ids(settings.get("excluded_apps")))
         # The models, from Settings; a change there applies at the next launch.
         models.configure(models.Models.from_settings(settings))
         self._missing_keys = models.missing_keys()
@@ -159,6 +162,9 @@ class App:
                 transport.set_voice_processing(bool(value))
             elif key == "input_device":
                 transport.set_input_device(str(value or ""))
+            elif key == "excluded_apps":
+                registry.set_excluded_apps(exclusions.bundle_ids(value))
+                source.exclusions_changed()
 
         self.shell = ShellWorker(
             menubar=self.menubar,

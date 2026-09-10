@@ -124,6 +124,10 @@ class ScreenCaptureSource(BaseFrameSource):
             return Resolved(SCREEN_TARGET, "every window", exact=False)
         return Resolved(self._target_for(window), self._label_for(window), exact=True)
 
+    def exclusions_changed(self):
+        """The excluded apps changed: the screen filter is built again."""
+        self._filters.pop(SCREEN_TARGET, None)
+
     def window_for(self, target: str) -> Optional[Window]:
         """The registry window behind a ``window:<id>`` target, if it is still there."""
         return self._window_for(target)
@@ -350,12 +354,15 @@ class ScreenCaptureSource(BaseFrameSource):
                 raise RuntimeError("no display")
             # Our own window is left out of the screen still: the record is
             # about the user's work, and scrolling Peekaboo is not a change.
+            # So are the apps the user excluded.
             own = self._registry.sc_app(self._registry.own_pid)
-            filter = display_filter(displays[0], excluding_apps=[own] if own is not None else ())
+            excluded = self._registry.sc_apps_for(self._registry.excluded_apps)
+            filter = display_filter(displays[0], excluding_apps=([own] if own is not None else []) + excluded)
             config = stream_configuration(filter, max_width=self._width)
             logger.debug(
                 f"{self}: {target} is display {displays[0].displayID()} at {config.width()}x{config.height()}"
                 f"{' excluding our own windows' if own is not None else ' (own app not known yet)'}"
+                f"{f' and {len(excluded)} excluded app(s)' if excluded else ''}"
             )
             if own is None:
                 # The registry has not listed us yet; try again next time

@@ -276,6 +276,9 @@
   .setting .fixed { font-size: 13px; color: var(--muted); }
   .select.model { width: 180px; }
   .select.key { width: 240px; font: 12.5px var(--mono); }
+  .excllist { list-style: none; margin: 0; padding: 0 0 8px; max-width: 720px; }
+  .excllist li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+  .excllist li .bid { font: 11.5px var(--mono); color: var(--faint); margin-left: 8px; }
   .restartnote { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; padding: 10px 14px; border-radius: 9px; background: var(--amber-soft, rgba(245, 158, 11, .12)); color: var(--text); font-size: 13px; }
   .seg { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; font-size: 12px; }
   .seg span { padding: 4px 12px; } .seg span.on { background: var(--accent); color: #fff; font-weight: 500; }
@@ -479,7 +482,11 @@
       </div>
       <div class="settings-sec" role="group" aria-label="Recording">
       <div class="eyebrow">Recording</div>
-      <div class="empty">Which apps to leave out and how long to keep memories come next.</div>
+      <div class="setting excl">
+        <div><div class="label">Apps never recorded</div><div class="help">Their windows are left out of every capture, description, watcher, and the screen picture. Password managers are here from the start.</div></div>
+        <div class="row"><select id="exclpick" class="select" aria-label="App to exclude"><option value="">Add a running app…</option></select><button class="btn small" id="excladd">Add</button></div>
+      </div>
+      <ul class="excllist" id="excllist" aria-label="Excluded apps"></ul>
       </div>
     </div>
   </section>
@@ -584,7 +591,7 @@ let playing = null;
 
 function show(name) {
   // The microphone list is read from the OS each time Settings is shown.
-  try { if (name === "settings" && settings) { loadMicrophones(); loadModels(); } } catch (e) { /* before settings load */ }
+  try { if (name === "settings" && settings) { loadMicrophones(); loadModels(); loadRunningApps(); } } catch (e) { /* before settings load */ }
   if (name === "searches") loadSearches();
   if (name !== "viewer") lastScreen = name;
   screen = name;
@@ -1311,6 +1318,26 @@ for (const row of document.querySelectorAll("[id^='key-']")) {
   btn.onclick = save;
   input.onkeydown = (e) => { if (e.key === "Enter") save(); };
 }
+// ---- exclusions ----------------------------------------------------------
+function exclusions() { return Array.isArray(settings.excluded_apps) ? settings.excluded_apps : []; }
+async function saveExclusions(list) { settings.excluded_apps = list; await call("set_setting", { key: "excluded_apps", value: list }); renderExclusions(); loadRunningApps(); }
+function renderExclusions() {
+  const list = exclusions();
+  $("#excllist").innerHTML = list.length ? list.map((a) => `<li><span>${esc(a.name)}<span class="bid">${esc(a.bundle_id)}</span></span><button class="btn small" data-bid="${esc(a.bundle_id)}" aria-label="Stop excluding ${esc(a.name)}">Remove</button></li>`).join("")
+    : `<li class="empty">No app is excluded.</li>`;
+  for (const btn of $("#excllist").querySelectorAll("button")) btn.onclick = () => saveExclusions(exclusions().filter((a) => a.bundle_id !== btn.dataset.bid));
+}
+async function loadRunningApps() {
+  let apps = [];
+  try { apps = (await call("running_apps", {})).apps || []; } catch (e) { plog("running_apps: " + e); }
+  const excluded = new Set(exclusions().map((a) => a.bundle_id));
+  $("#exclpick").innerHTML = `<option value="">Add a running app…</option>` + apps.filter((a) => !excluded.has(a.bundle_id)).map((a) => `<option value="${esc(a.bundle_id)}">${esc(a.name)}</option>`).join("");
+}
+$("#excladd").onclick = async () => {
+  const sel = $("#exclpick"); const bid = sel.value; if (!bid) return;
+  const name = sel.options[sel.selectedIndex].text;
+  await saveExclusions([...exclusions(), { bundle_id: bid, name }]);
+};
 $("#restartbtn").onclick = async () => { $("#restartbtn").disabled = true; try { await call("restart", {}); } catch (e) { $("#restartbtn").disabled = false; } };
 
 $("#micsel").onchange = async (e) => {
@@ -1325,7 +1352,7 @@ $("#recordlaunch").onchange = async (e) => {
   settings.record_on_launch = e.target.checked;
   await call("set_setting", { key: "record_on_launch", value: settings.record_on_launch });
 };
-async function loadSettings() { settings = await call("settings", {}); applyTheme(settings.theme || "system"); applyRecordSetting(); await loadMicrophones(); await loadModels(); }
+async function loadSettings() { settings = await call("settings", {}); applyTheme(settings.theme || "system"); applyRecordSetting(); await loadMicrophones(); await loadModels(); renderExclusions(); await loadRunningApps(); }
 
 // ---- status footer ----------------------------------------------------
 let lastToday = null;

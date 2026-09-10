@@ -137,3 +137,12 @@ def test_split_wanted_reads_the_pickers_app_and_title():
     assert _split_wanted("Slack: Threads - Daily") == ("Slack", "Threads - Daily")
     assert _split_wanted("Slack: ! ext-daily: Channel") == ("Slack", "! ext-daily: Channel")
     assert _split_wanted("the terminal") == ("", "")
+
+
+def test_exclusions_setting_is_normalized():
+    from exclusions import DEFAULT_EXCLUDED_APPS, bundle_ids, normalize
+
+    assert "com.1password.1password" in bundle_ids(DEFAULT_EXCLUDED_APPS)
+    cleaned = normalize([{"bundle_id": "com.a", "name": "A"}, "com.b", {"bundle_id": "com.a", "name": "again"}, {"name": "no id"}, 7])
+    assert cleaned == [{"bundle_id": "com.a", "name": "A"}, {"bundle_id": "com.b", "name": "com.b"}]
+    assert normalize("garbage") == []
