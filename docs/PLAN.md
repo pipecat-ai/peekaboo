@@ -183,29 +183,29 @@ with password managers pre-populated.
 
 ### Workers (all on one runner, one in-memory bus)
 
-**`voice`** — `PipelineWorker`. macOS audio transport (below) → Moonshine
-(local, always on, hears everything) → wake gate → Deepgram (connected only
-while awake) → context aggregator → Anthropic LLM with tools → Cartesia over
-HTTP (a request per utterance) → transport output → assistant aggregator.
+**`voice`** — an `LLMWorker` around the transport pipeline. macOS audio
+transport (below) → Moonshine (local, always on, hears everything and is the
+wake word) → wake gate → context aggregator → the Voice LLM with tools →
+Kokoro (local) → transport output → assistant aggregator. Speech never
+leaves the machine; the LLM is the only network service. Deepgram and
+Cartesia remain behind `--stt deepgram` and `--tts cartesia` for comparison.
 
-Asleep, nothing is connected and nothing leaves the machine: every utterance
-is transcribed on the CPU and dropped unless it starts with "Peekaboo". The
-words after the phrase go through at once from the local transcript, Deepgram
-connects in the background for what follows, and the gate stays awake for
-fifteen seconds past the bot's last word so follow-ups need no phrase; a bare
-"Peekaboo" is answered with "Yes?". With `--local-speech` Kokoro speaks and
-the LLM is the only network service. Typed turns (the app's Ask box, the
-evals) bypass the gate.
+Asleep, every utterance is transcribed on the CPU and dropped unless it
+starts with "Peekaboo". The words after the phrase go through at once, the
+gate stays awake for fifteen seconds past the bot's last word so follow-ups
+need no phrase, and a bare "Peekaboo" is answered with "Yes?". Typed turns
+(the app's Ask box, the evals) bypass the gate.
 
-Tools exposed to the voice LLM:
+Tools, `@tool` methods whose schemas come from their docstrings:
 
 | Tool | Backed by | Behavior |
 |---|---|---|
-| `list_windows(app?)` | Registry (in-process) | Returns apps and window titles. |
-| `look(target, question)` | Job → `vision` | Fresh still + question, one model call, spoken answer. Timeout 15 s. |
-| `watch(target, condition, repeat)` | Job → `screen` | Creates a watcher, acknowledges immediately. |
-| `unwatch(id)`, `list_watchers()` | Job → `screen` | |
-| `search_memory(query, since, until)` | Job → `history` | Progress updates are narrated; final answer spoken. |
+| `look(question, target?)` | Job → `vision` | What is on screen or in a window now: fresh still + question, one model call. |
+| `remember(question)` | Job → `history` | The past: a search over the store, narrated as it goes; no picture. |
+| `watch(condition, target?)`, `unwatch(id?, target?)`, `list_watchers()` | Job → `screen` | A watcher on a window or on every window and notification; hits come back as updates. |
+| `window(request)` | Job → `ui` | Anything about the Peekaboo window; the window agent acts and answers. |
+| `show_me()`, `past_searches(query)` | Store, `shell` | Open the memories behind the last answer; find earlier questions. |
+| `list_windows(app?)`, `set_recording(on)`, `join_meeting()`, `snooze_reminder(minutes?)` | In-process | Registry, the capture, the announced meeting. |
 
 Watch hits and staleness warnings arrive as urgent job updates on the
 long-lived watch job. A handler on the voice worker turns them into a spoken
@@ -218,7 +218,7 @@ shape:
 
 ```
 FrameSource (frames tagged with target) → ChangeGate → VisionImageProcessor
-  → user aggregator → Anthropic LLM (structured output) → assistant aggregator
+  → user aggregator → the Vision LLM (structured output) → assistant aggregator
   → ImageContextProcessor (parse, store, emit watch hits)
 ```
 
@@ -228,11 +228,13 @@ target as JPEG bytes, fresh or the latest seen. On macOS there is one screen
 worker per watched window or app, named by target; the single shared-screen
 target is the first of many.
 
-**`vision`** — `PipelineWorker`. Answers questions with the picture in hand.
-A `look` job asks the screen worker for a fresh frame, reads the last few
-observations from the store, and sends question, picture, and context to the
-model in one call. Runs rarely, so it can use the strongest model. Delegates
-past questions to the history worker and forwards what comes back.
+**`vision`** — an `LLMWorker` with a query processor in front of its
+aggregators. Answers questions with the picture in hand: a `look` job asks
+the screen worker for a fresh frame, reads the latest capture of every
+window and the last few observations from the store, and sends question,
+picture, and context to the Vision LLM in one call. A present-tense question
+that turns out to need the past is handed to the history worker and what
+comes back is forwarded.
 
 The frame source is injected. On the Mac it is the ScreenCaptureKit source,
 which reads windows straight from the OS, so nothing about the screen
@@ -246,22 +248,29 @@ Mac app.
 Description schema per frame:
 `{ type: "description" | "watchlist", content, verbatim_text: [..], watchlist: [..], timestamp }`.
 
-**`history`** — `PipelineWorker`. Anthropic LLM with extended thinking and
-three tools over the store: `search(query, since, until)`,
-`timeline(target, since, until)`, `get(ids)`. Handles `search_memory` jobs,
-sends progress updates while it searches, returns a spoken-form answer plus
-the observation IDs it drew on, so the app can show the screenshots.
-Replaces today's `HistoryAgent` and its batch paging.
+**`history`** — an `LLMContextWorker`. The Voice LLM, no extended
+thinking, with three `@tool` methods over the store: `search_history(query,
+since, until)`, `timeline(since, until, limit)`, `available_history(date)`.
+Handles `search` jobs, sends progress updates while it searches, returns a
+spoken-form answer plus the observation IDs it drew on, so the app can show
+the screenshots.
 
-**`ui`** — `BaseWorker`, no pipeline. Subscribes to bus messages (watcher
-created / hit / stale / removed, job progress, voice state) and marshals them
-to the main thread. Carries menu actions back (pause, unwatch, ask) and opens the memories window
-at a given observation when the voice worker asks ("show me").
+**`ui`** — a Pipecat `UIWorker` (`workers/ui.py`): the window agent. Gets
+the page's accessibility snapshots over RTVI, takes `respond` jobs from the
+voice worker with the user's words, and acts through UI commands (click,
+navigate, the Timeline moves) with a short spoken reply through the voice
+pipeline's TTS.
+
+**`shell`** — a `BaseUIWorker`, no pipeline (`workers/shell.py`). Answers
+the page's data calls over RTVI, pushes UI commands, drives the menu bar,
+and owns the settings, pause, retention, and restart. A worker only for the
+bus handle.
 
 **Moment policy** is a small arbiter inside the `voice` worker: a queue of
 pending moments, the quiet rules above, and the choice between speech and a
-banner. Banners go through the `ui` worker to the system notification
-center. Reminders reach it from the `screen` worker over a `subscribe` job.
+banner. Reminders reach it from the `screen` worker over a `subscribe` job.
+The Mac quiet rules (another app has the microphone, the screen is shared)
+are not wired yet.
 
 ### macOS audio transport
 
@@ -300,11 +309,11 @@ SQLite at `~/Library/Application Support/Peekaboo/peekaboo.db`, WAL mode.
 
 **Screenshots.** Every observation keeps the frame that produced it, as a
 JPEG scaled to 1280 wide at moderate quality, roughly 100–200 KB, plus a small
-thumbnail for lists. Frames are deduplicated by hash. Text is kept
-indefinitely; images follow a retention setting, default 7 days. At the gated
-rate of Record mode that is on the order of 0.5 GB a day, so a week of history
-is a few gigabytes. Retention and a "delete this range" action are user
-controls, not internals.
+thumbnail for lists. Frames are deduplicated by hash. Retention is two
+settings: screenshots go after 7 days by default (the text stays
+searchable, and a placeholder tile marks the memory), whole memories go
+after a chosen time or never (the default); screen stills never outlive two
+days. A "delete this range" action is still to do.
 
 This replaces the hourly JSON files and their read-rewrite-on-append cost.
 
@@ -412,6 +421,14 @@ Defaults taken in this plan. Change any of them before M1.
     not the frontmost window, because it shows what the user sees, survives
     focus changes, and keeps side-by-side layouts; tag each observation with
     the frontmost app and title; 1280 wide.
+13. **Models and keys are settings, and speech is local.** Settings ▸ Models
+    chooses the Moonshine model, the Kokoro voice, and a provider and model
+    for each of two language models, the Voice LLM (conversation, window
+    agent, history answers) and the Vision LLM (descriptions, look); one API
+    key per provider, kept in the login keychain, no `.env`. No extended
+    thinking anywhere: every answer is spoken or describes a picture, and
+    speed wins. The past goes to `history` directly (`remember`), never
+    through a picture.
 11. **Staleness is detected three ways, not one.** A `suspended` frame, no
     frame for a few seconds, or a `complete` frame whose content area is
     blank. Frame status alone is not a freshness signal.
@@ -436,29 +453,34 @@ Defaults taken in this plan. Change any of them before M1.
 
 ```
 src/
-  app.py                  # entry point: AppKit on main thread, Pipecat thread
+  app.py                  # entry point: AppKit on the main thread, the workers on an asyncio thread
+  bot.py                  # the headless bot (evals, the Daily demo)
+  models.py               # the model choices, the LLM factory, keys from the keychain
+  exclusions.py           # apps never recorded
+  moments.py              # the moment policy
   macos/
-    registry.py           # window list poll + NSWorkspace → events
-    capture.py            # SCStream / SCScreenshotManager wrappers → frames
-    audio.py              # AVAudioEngine transport, voice-processing I/O
-    notifications.py      # system banners
-    permissions.py        # TCC checks and guidance
+    registry.py           # window list poll → events, exclusions
+    capture.py            # ScreenCaptureKit stills and streams
+    audio.py              # AVAudioEngine transport: voice processing, microphone choice, RTVI messages
+    audio_devices.py      # the HAL: input devices, aggregates
+    keychain.py           # API keys
+    memories.py           # the window: a web view that is a Pipecat client
     menubar.py            # status item, dropdown, state icon
-    hotkey.py             # v2
+    permissions.py        # TCC checks, relaunch, restart
+    assets/memories.html  # the page, with @pipecat-ai/client-js vendored
   workers/
-    voice.py              # includes the moment policy
-    screen.py             # capture, describe, watch, on-screen reminders
-    vision.py
-    history.py
-    ui.py
+    voice.py              # LLMWorker: transport, wake gate, tools, the moment policy
+    screen.py             # PipelineWorker: capture, describe, watch, on-screen reminders
+    vision.py             # LLMWorker: look answers
+    history.py            # LLMContextWorker: search answers
+    ui.py                 # UIWorker: the window agent
+    shell.py              # BaseUIWorker: menu bar, window, settings
   processors/
-    window_source.py      # emits image frames tagged with target
-    change_gate.py        # status + perceptual hash
-    vision_prompt.py      # builds the model request
-    observation_sink.py   # parse, store, emit hits
-  store/
-    models.py
-    sqlite_store.py       # + FTS5
+    wake.py               # the wake gate
+    gate.py               # the change gate
+    vision.py             # the image processor and the query processor
+  sources/                # frame sources: ScreenCaptureKit, transport
+  store/                  # SQLite + FTS5, frames on disk, retention
 ```
 
 What carries over from today's code: the vision system prompts and structured
