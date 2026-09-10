@@ -71,26 +71,62 @@ flowchart LR
   shell <-- "RTVI" --> page["Window<br/>web view, Pipecat JS client"]
 ```
 
-- **Remembering.** Every two seconds `screen` takes a still of the display
-  and of each window. A change gate drops what looks the same as last
-  time; what changed goes to the Vision LLM, at most every 15 seconds per
-  window, and the description, the text read off it, and the frame are
-  written to the store. Watchers check each description against their
-  condition.
-- **Asking.** "What was I doing this morning?" reaches `voice`, which hands
-  it to `vision` as a `look` job. `vision` asks `screen` for a fresh frame,
-  reads the latest capture of every window, and answers from the present
-  when it can. For the past it hands the question to `history`, which
-  searches the store with its tools and answers in two sentences. Whatever
-  comes back is a moment, spoken by `voice` when nobody is talking.
-- **Watching.** "Tell me when the build finishes" becomes a `watch` job on
-  `screen`, bound to a window or to every window. A hit comes back over the
-  bus and is spoken.
-- **The window.** The window is a web view running the Pipecat JavaScript
-  client. Its data calls are answered by `shell` over RTVI, and everything
-  the app pushes is a UI command. "Open the first one" goes to `ui`, a
-  Pipecat `UIWorker` that reads the page's accessibility snapshot and clicks
-  through the same commands.
+**Remembering** never crosses the bus: every two seconds `screen` takes a
+still of the display and of each window, a change gate drops what looks the
+same as last time, what changed goes to the Vision LLM at most every 15
+seconds per window, and the description, the text read off it, and the
+frame are written to the store, all inside that one pipeline. What comes out
+of it is the memory the others read, and the occasional watcher hit.
+
+**Asking** is a chain of jobs. `voice` acknowledges at once and stays free
+to listen; the answer arrives later as a moment, spoken when nobody is
+talking:
+
+```mermaid
+sequenceDiagram
+  participant U as You
+  participant V as voice
+  participant S as vision
+  participant C as screen
+  participant H as history
+  U->>V: "What was I doing this morning?"
+  V-->>U: "One moment."
+  V->>S: look(question)
+  S->>C: frame(fresh)
+  C-->>S: picture of the screen now
+  S->>S: Vision LLM: the picture, every window's latest capture
+  S->>H: search(question)
+  H->>H: Voice LLM with tools over the store
+  H-->>S: update: "checking this morning"
+  S-->>V: update, spoken as a moment
+  H-->>S: answer + memory ids
+  S-->>V: answer + memory ids
+  V-->>U: spoken; the window shows the memories
+```
+
+**Watching** binds a condition to a window inside `screen`; the hit comes
+back over the bus:
+
+```mermaid
+sequenceDiagram
+  participant U as You
+  participant V as voice
+  participant C as screen
+  U->>V: "Tell me when the build finishes."
+  V-->>U: "I'll let you know."
+  V->>C: watch(condition, window)
+  loop every change of that window
+    C->>C: Vision LLM: description + does the condition hold?
+  end
+  C-->>V: update: hit
+  V-->>U: "The build finished: 142 tests passed."
+```
+
+**The window** is a web view running the Pipecat JavaScript client. Its
+data calls are answered by `shell` over RTVI, and everything the app pushes
+is a UI command. "Open the first one" goes from `voice` to `ui`, a Pipecat
+`UIWorker` that reads the page's accessibility snapshot and clicks through
+the same commands, then speaks its short reply through `voice`'s TTS.
 
 ## 🔧 Built on Pipecat
 
