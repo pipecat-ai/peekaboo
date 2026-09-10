@@ -79,7 +79,6 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         open_links=not isinstance(transport, EvalTransport),
         wake_word=not isinstance(transport, EvalTransport),
         store=store,
-        idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
     )
     screen = ScreenWorker(store=store, source=source)
     vision = VisionWorker(store=store)

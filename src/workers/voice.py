@@ -16,8 +16,6 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import TYPE_CHECKING, Literal, Optional
 
 from loguru import logger
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.bus.messages import (
@@ -42,7 +40,9 @@ from pipecat.bus.messages import BusJobRequestMessage
 from pipecat.pipeline.job_context import JobError, JobParams, JobStatus
 from pipecat.pipeline.job_decorator import job
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.services.llm_service import LLMService
+from pipecat.workers.llm.llm_worker import LLMWorker
+from pipecat.workers.llm.tool_decorator import tool
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -342,12 +342,14 @@ class GreetingRecorder(FrameProcessor):
             logger.warning(f"{self}: could not cache the greeting: {e}")
 
 
-class VoiceWorker(PipelineWorker):
+class VoiceWorker(LLMWorker):
     """The conversation: transport, STT, LLM, TTS.
 
-    Screen questions become ``look`` jobs on the vision worker and watch
-    requests become ``watch`` jobs on the screen worker, each carrying the
-    window or app the user named. Whatever comes back, an answer, a progress
+    A Pipecat ``LLMWorker`` around the transport pipeline: the ``@tool``
+    methods below are the conversation's tools, their schemas read from their
+    signatures and docstrings. Screen questions become ``look`` jobs on the
+    vision worker and watch requests become ``watch`` jobs on the screen
+    worker, each carrying the window or app the user named. Whatever comes back, an answer, a progress
     line, a watch hit, a warning that a watched window went out of sight, or
     a reminder the screen worker spotted on screen, becomes a moment, and the
     moment policy decides when it is spoken: never over anyone talking, and
@@ -388,8 +390,6 @@ class VoiceWorker(PipelineWorker):
         greeting_cache: Optional[Path] = None,
         wake_word: bool = True,
         quiet_checks: Optional[list[Callable[[], bool]]] = None,
-        idle_timeout_secs: float | None = None,
-        **kwargs,
     ):
         self._transport = transport
         self._vision_worker = vision_worker
@@ -439,18 +439,12 @@ class VoiceWorker(PipelineWorker):
         self._look_jobs: set[str] = set()
         self._watch_jobs: set[str] = set()
 
-        pipeline = self._build_pipeline()
+        llm, pipeline = self._build_pipeline()
 
-        super().__init__(
-            pipeline,
-            name=VOICE_WORKER,
-            params=PipelineParams(
-                enable_metrics=True,
-                enable_usage_metrics=True,
-            ),
-            idle_timeout_secs=idle_timeout_secs,
-            **kwargs,
-        )
+        # Active from the start: activation is what sets the tools. Frames a
+        # tool queues go out at once: the acknowledgement ("One moment.") is
+        # spoken while the job it started runs, not after the tool returns.
+        super().__init__(VOICE_WORKER, llm=llm, pipeline=pipeline, active=True, defer_tool_frames=False)
 
     def _speech_services(self) -> list[FrameProcessor]:
         """The recognition stage and the synthesizer: ``[*stt, tts]``.
@@ -515,7 +509,7 @@ class VoiceWorker(PipelineWorker):
             return f"kokoro-{self._tts_voice}"
         return f"cartesia-{os.getenv('CARTESIA_VOICE_ID') or CARTESIA_VOICE}"
 
-    def _build_pipeline(self) -> Pipeline:
+    def _build_pipeline(self) -> tuple[LLMService, Pipeline]:
         *stt, tts = self._speech_services()
 
         llm = models.make_llm(
@@ -524,175 +518,7 @@ class VoiceWorker(PipelineWorker):
             system_instruction=SYSTEM_INSTRUCTION,
             retry_on_timeout=True,
         )
-        llm.register_function("look", self._look)
-        llm.register_function("watch", self._watch)
-        llm.register_function("unwatch", self._unwatch)
-        llm.register_function("list_watchers", self._list_watchers)
-        llm.register_function("list_windows", self._list_windows)
-        llm.register_function("show_me", self._show_me)
-        llm.register_function("past_searches", self._past_searches)
-        llm.register_function("window", self._window)
-        llm.register_function("set_recording", self._set_recording)
-        llm.register_function("join_meeting", self._join_meeting)
-        llm.register_function("snooze_reminder", self._snooze_reminder)
-
-        target_property = {
-            "type": "string",
-            "description": (
-                "The window or app the user named, in their words: 'the terminal', 'Chrome', "
-                "part of a window title. Empty to watch every window and notification."
-            ),
-        }
-
-        look_function = FunctionSchema(
-            name="look",
-            description=(
-                "Answer a question about the screen or one window: what is visible now, or what "
-                "was on screen earlier today or on a past day. UI, text, errors, numbers, links, "
-                "anything the user looked at."
-            ),
-            properties={
-                "question": {"type": "string", "description": "The exact question the user is asking."},
-                "target": target_property,
-            },
-            required=["question"],
-        )
-
-        watch_function = FunctionSchema(
-            name="watch",
-            description=(
-                "Tell the user when something happens on the screen or in one window: a build "
-                "finishing, a message arriving, a value changing, a window appearing."
-            ),
-            properties={
-                "condition": {"type": "string", "description": "What to watch for, in the user's words."},
-                "target": target_property,
-            },
-            required=["condition"],
-        )
-
-        unwatch_function = FunctionSchema(
-            name="unwatch",
-            description=(
-                "Stop watching. Give the watcher id from list_watchers, or the target to stop "
-                "every watcher on it, or nothing to stop them all."
-            ),
-            properties={
-                "id": {"type": "integer", "description": "A watcher id from list_watchers."},
-                "target": target_property,
-            },
-            required=[],
-        )
-
-        list_watchers_function = FunctionSchema(
-            name="list_watchers",
-            description=(
-                "What is currently being watched, with ids, to say it aloud when the user asks "
-                "what is being watched. Not for showing the Watchers screen: that is [window]."
-            ),
-            properties={},
-            required=[],
-        )
-
-        recording_function = FunctionSchema(
-            name="set_recording",
-            description="Start or pause recording the screen into memory.",
-            properties={"on": {"type": "boolean", "description": "True to record, false to pause."}},
-            required=["on"],
-        )
-
-        show_me_function = FunctionSchema(
-            name="show_me",
-            description=(
-                "Open the memories window on the results behind the last answer: the answer and "
-                "the memories it drew on. Call it when the user says 'show me' or asks to see it; "
-                "opening one of them is then a request for [window]."
-            ),
-            properties={},
-            required=[],
-        )
-
-        past_searches_function = FunctionSchema(
-            name="past_searches",
-            description=(
-                "Find questions the user asked before and what was answered. Call it when the "
-                "user refers to an earlier question or search: 'what did I ask yesterday', "
-                "'I remember searching for...', 'what did you tell me about...'."
-            ),
-            properties={
-                "query": {
-                    "type": "string",
-                    "description": "A few words from the earlier question or its answer. Empty for the most recent ones.",
-                },
-            },
-            required=["query"],
-        )
-        window_function = FunctionSchema(
-            name="window",
-            description=(
-                "Operate the Peekaboo window, or answer about what it shows. Call it when the "
-                "user refers to the window or something on it: open/show/click/select/go back, "
-                "'the first one', 'the third screenshot', 'this one', 'take a look', 'more "
-                "details', switch to the timeline, searches, watchers or settings, or asks what "
-                "one of the shown memories is about. The window can click anything it shows."
-            ),
-            properties={
-                "request": {
-                    "type": "string",
-                    "description": "What the user wants, in their words.",
-                },
-            },
-            required=["request"],
-        )
-        list_windows_function = FunctionSchema(
-            name="list_windows",
-            description="The apps and windows open right now, front to back.",
-            properties={
-                "app": {"type": "string", "description": "Only this app's windows. Empty for all."},
-            },
-            required=[],
-        )
-
-        join_function = FunctionSchema(
-            name="join_meeting",
-            description=(
-                "Open the join link of the meeting that was just announced. Call it when the "
-                "user agrees to join or open the meeting."
-            ),
-            properties={},
-            required=[],
-        )
-
-        snooze_function = FunctionSchema(
-            name="snooze_reminder",
-            description="Remind the user about the announced meeting again in a few minutes.",
-            properties={
-                "minutes": {
-                    "type": "integer",
-                    "description": "How many minutes from now to remind again. Defaults to 5.",
-                },
-            },
-            required=[],
-        )
-
-        context = LLMContext(
-            tools=ToolsSchema(
-                standard_tools=[
-                    look_function,
-                    watch_function,
-                    unwatch_function,
-                    list_watchers_function,
-                    list_windows_function,
-                    show_me_function,
-                    past_searches_function,
-                    window_function,
-                    recording_function,
-                    join_function,
-                    snooze_function,
-                ]
-            )
-        )
-
+        context = LLMContext()
         # Turn detection lives here: VAD decides when the user starts talking
         # and the default stop strategy is the local Smart Turn v3 analyzer.
         # The VAD's stop also ends the local recognizer's segments; the pause
@@ -721,7 +547,7 @@ class VoiceWorker(PipelineWorker):
             # its frame requests back in.
             processors.insert(1, self._screen_bridge)
 
-        return Pipeline(processors)
+        return llm, Pipeline(processors)
 
     async def start_session(self, client_id: str, *, recording: bool = True):
         """Kick off the conversation once the client is connected.
@@ -825,9 +651,15 @@ class VoiceWorker(PipelineWorker):
             expires_at=asyncio.get_running_loop().time() + MEETING_MOMENT_LIFETIME_SECS,
         )
 
-    async def _look(self, params: FunctionCallParams):
-        question = str(params.arguments.get("question", ""))
-        target = str(params.arguments.get("target") or "")
+    @tool
+    async def look(self, params: FunctionCallParams, question: str, target: Optional[str] = None):
+        """Answer a question about the screen or one window: what is visible now, or what was on screen earlier today or on a past day. UI, text, errors, numbers, links, anything the user looked at.
+
+        Args:
+            question: The exact question the user is asking.
+            target: The window or app the user named, in their words: 'the terminal', 'Chrome', part of a window title. Empty for the whole screen.
+        """
+        target = target or ""
 
         # Fire and forget: the answer comes back as a job message and is
         # spoken then. A canned acknowledgement goes out now and the LLM is
@@ -842,10 +674,15 @@ class VoiceWorker(PipelineWorker):
             self._on_asked(question)
         await self._acknowledge(params, LOOK_FILLER)
 
-    async def _watch(self, params: FunctionCallParams):
-        condition = str(params.arguments.get("condition", ""))
-        target = str(params.arguments.get("target") or "")
-        await self._start_watch(condition, target)
+    @tool
+    async def watch(self, params: FunctionCallParams, condition: str, target: Optional[str] = None):
+        """Tell the user when something happens on the screen or in one window: a build finishing, a message arriving, a value changing, a window appearing.
+
+        Args:
+            condition: What to watch for, in the user's words.
+            target: The window or app the user named, in their words: 'the terminal', 'Chrome', part of a window title. Empty to watch every window and notification.
+        """
+        await self._start_watch(condition, target or "")
         await self._acknowledge(params, WATCH_FILLER)
 
     async def _start_watch(self, condition: str, target: str, wanted: Optional[str] = None) -> str:
@@ -873,12 +710,19 @@ class VoiceWorker(PipelineWorker):
             properties=FunctionCallResultProperties(run_llm=False),
         )
 
-    async def _unwatch(self, params: FunctionCallParams):
+    @tool
+    async def unwatch(self, params: FunctionCallParams, id: Optional[int] = None, target: Optional[str] = None):
+        """Stop watching. Give the watcher id from list_watchers, or the target to stop every watcher on it, or nothing to stop them all.
+
+        Args:
+            id: A watcher id from list_watchers.
+            target: The window or app the user named, to stop every watcher on it.
+        """
         payload = {}
-        if params.arguments.get("id") is not None:
-            payload["id"] = int(params.arguments["id"])
-        if params.arguments.get("target"):
-            payload["target"] = str(params.arguments["target"])
+        if id is not None:
+            payload["id"] = int(id)
+        if target:
+            payload["target"] = str(target)
         try:
             async with self.job(self._screen_worker, params=JobParams(name="unwatch", payload=payload)) as t:
                 pass
@@ -887,7 +731,9 @@ class VoiceWorker(PipelineWorker):
             return
         await params.result_callback(t.response or {})
 
-    async def _list_watchers(self, params: FunctionCallParams):
+    @tool
+    async def list_watchers(self, params: FunctionCallParams):
+        """What is currently being watched, with ids, to say it aloud when the user asks what is being watched. Not for showing the Watchers screen: that is [window]."""
         # Asked about the watchers, the window shows them too.
         if self._on_show_screen:
             self._on_show_screen("watchers")
@@ -899,8 +745,14 @@ class VoiceWorker(PipelineWorker):
             return
         await params.result_callback(t.response or {})
 
-    async def _set_recording(self, params: FunctionCallParams):
-        on = bool(params.arguments.get("on", True))
+    @tool
+    async def set_recording(self, params: FunctionCallParams, on: bool):
+        """Start or pause recording the screen into memory.
+
+        Args:
+            on: True to record, false to pause.
+        """
+        on = bool(on)
         self._recording = on
         if self._on_recording is not None:
             await self._on_recording(on)
@@ -911,24 +763,36 @@ class VoiceWorker(PipelineWorker):
             )
         await params.result_callback({"recording": on})
 
-    async def _window(self, params: FunctionCallParams):
+    @tool
+    async def window(self, params: FunctionCallParams, request: str):
+        """Operate the Peekaboo window, or answer about what it shows. Call it when the user refers to the window or something on it: open/show/click/select/go back, 'the first one', 'the third screenshot', 'this one', 'take a look', 'more details', switch to the timeline, searches, watchers or settings, or asks what one of the shown memories is about. The window can click anything it shows.
+
+        Args:
+            request: What the user wants, in their words.
+        """
         # The ui worker sees the window's accessibility snapshot, acts on the
         # page, and speaks its own short reply through this pipeline's TTS.
         # Asking the window for something means wanting to see it.
         if self._on_open_window:
             self._on_open_window()
-        request = str(params.arguments.get("request") or "")
+        request = str(request or "")
         await self.request_job(self._ui_worker, params=JobParams(name="respond", payload={"query": request}))
         await params.result_callback(
             "Handed to the window; it will answer aloud.",
             properties=FunctionCallResultProperties(run_llm=False),
         )
 
-    async def _past_searches(self, params: FunctionCallParams):
+    @tool
+    async def past_searches(self, params: FunctionCallParams, query: str):
+        """Find questions the user asked before and what was answered. Call it when the user refers to an earlier question or search: 'what did I ask yesterday', 'I remember searching for...', 'what did you tell me about...'.
+
+        Args:
+            query: A few words from the earlier question or its answer. Empty for the most recent ones.
+        """
         if self._store is None:
             await params.result_callback({"error": "no memory of past searches here"})
             return
-        query = str(params.arguments.get("query") or "")
+        query = str(query or "")
         asks = await self._store.search_asks(query, limit=5)
         if asks and self._on_show_ask:
             # The window jumps to the best match while it is read back.
@@ -948,20 +812,28 @@ class VoiceWorker(PipelineWorker):
             }
         )
 
-    async def _show_me(self, params: FunctionCallParams):
+    @tool
+    async def show_me(self, params: FunctionCallParams):
+        """Open the memories window on the results behind the last answer: the answer and the memories it drew on. Call it when the user says 'show me' or asks to see it; opening one of them is then a request for [window]."""
         if not self._last_ids or self._on_show is None:
             await params.result_callback({"opened": False, "reason": "nothing to show yet"})
             return
         self._on_show(list(self._last_ids))
         await params.result_callback({"opened": True, "count": len(self._last_ids)})
 
-    async def _list_windows(self, params: FunctionCallParams):
+    @tool
+    async def list_windows(self, params: FunctionCallParams, app: Optional[str] = None):
+        """The apps and windows open right now, front to back.
+
+        Args:
+            app: Only this app's windows. Empty for all.
+        """
         if self._windows is None:
             await params.result_callback({"windows": [], "note": "Only the shared screen is available."})
             return
         from macos.registry import collapse_tabs
 
-        app = str(params.arguments.get("app") or "").strip().lower()
+        app = str(app or "").strip().lower()
         windows = [
             {"app": w.app, "title": w.title, "on_screen": w.on_screen, **({"tabs": list(w.tabs)} if w.tabs else {})}
             for w in collapse_tabs(self._windows.windows)
@@ -969,7 +841,9 @@ class VoiceWorker(PipelineWorker):
         ]
         await params.result_callback({"windows": windows[:MAX_LISTED_WINDOWS]})
 
-    async def _join_meeting(self, params: FunctionCallParams):
+    @tool
+    async def join_meeting(self, params: FunctionCallParams):
+        """Open the join link of the meeting that was just announced. Call it when the user agrees to join or open the meeting."""
         meeting = self._moments.last_meeting
         if not meeting or not meeting.url:
             await params.result_callback({"opened": False, "reason": "no meeting link"})
@@ -981,12 +855,18 @@ class VoiceWorker(PipelineWorker):
             logger.info(f"{self}: would open {meeting.url}")
         await params.result_callback({"opened": True})
 
-    async def _snooze_reminder(self, params: FunctionCallParams):
+    @tool
+    async def snooze_reminder(self, params: FunctionCallParams, minutes: Optional[int] = None):
+        """Remind the user about the announced meeting again in a few minutes.
+
+        Args:
+            minutes: How many minutes from now to remind again. Defaults to 5.
+        """
         meeting = self._moments.last_meeting
         if not meeting:
             await params.result_callback({"snoozed": False, "reason": "no reminder to snooze"})
             return
-        minutes = int(params.arguments.get("minutes") or 5)
+        minutes = int(minutes or 5)
         self._moments.snooze(meeting, minutes)
         await params.result_callback({"snoozed": True, "minutes": minutes})
 
