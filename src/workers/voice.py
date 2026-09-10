@@ -106,8 +106,6 @@ WAKE_VAD_STOP_SECS = 0.6
 # Cartesia voice when CARTESIA_VOICE_ID is not set: British Reading Lady.
 CARTESIA_VOICE = "71a7ad14-091c-4e8e-a314-022ece01c121"
 
-# Kokoro voice: British English, female. Others: af_heart, bm_george, am_adam.
-KOKORO_VOICE = "bf_emma"
 
 # Kokoro on the CPU synthesizes a long paragraph in one go and hands it over
 # whole, so a TTS context can sit silent for a few seconds before its audio
