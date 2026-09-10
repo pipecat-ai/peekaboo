@@ -146,19 +146,35 @@ class PeekabooUIWorker(UIWorker):
             await self._on_plain_answer(aggregator, message)
 
     @tool
-    async def select(self, params: FunctionCallParams, ref: Optional[str] = None, navigate: Optional[str] = None):
-        """Click an element or switch screens and see the window afterwards, without answering yet.
+    async def select(
+        self,
+        params: FunctionCallParams,
+        ref: Optional[str] = None,
+        navigate: Optional[str] = None,
+        timeline_day: Optional[str] = None,
+        timeline_hour: Optional[int] = None,
+        timeline_from: Optional[str] = None,
+        timeline_to: Optional[str] = None,
+    ):
+        """Click an element, switch screens, or move the Timeline, and see the window afterwards, without answering yet.
 
-        Use it when what you need appears only after the click, such as the
-        memories of a Timeline block, or when the thing named is on another
-        screen ("the third search" while Ask is showing: navigate to
-        searches first); then call reply.
+        Use it when what you need appears only after the action, such as the
+        memories of a Timeline block or of a day, or when the thing named is
+        on another screen ("the third search" while Ask is showing: navigate
+        to searches first); then call reply.
 
         Args:
             ref: Ref of the element to click, from the current state.
             navigate: Screen to switch to instead: ask, searches, timeline, watchers, or settings.
+            timeline_day: Day to show on the Timeline, as YYYY-MM-DD.
+            timeline_hour: Hour of that day to zoom into, 0 to 23.
+            timeline_from: Start of a span to select on the Timeline, as HH:MM.
+            timeline_to: End of that span, as HH:MM.
         """
         before = self._snapshots
+        moved = await self._move_timeline(timeline_day, timeline_hour, timeline_from, timeline_to)
+        if moved:
+            navigate = None
         if navigate:
             view = navigate.strip().lower()
             if view in SCREENS:
@@ -168,8 +184,8 @@ class PeekabooUIWorker(UIWorker):
                 return
         elif ref:
             await self.click(ref)
-        else:
-            await params.result_callback("Nothing to select: give a ref or a screen.")
+        elif not moved:
+            await params.result_callback("Nothing to select: give a ref, a screen, or a Timeline move.")
             return
         # The page redraws and streams a new snapshot within a moment.
         for _ in range(30):
@@ -177,7 +193,8 @@ class PeekabooUIWorker(UIWorker):
             if self._snapshots != before:
                 break
         await asyncio.sleep(0.2)
-        await params.result_callback(f"{'Switched to ' + navigate if navigate else 'Clicked ' + str(ref)}. The window now shows:\n{self.render_ui_state()}")
+        did = "Moved the Timeline" if moved else ("Switched to " + navigate if navigate else "Clicked " + str(ref))
+        await params.result_callback(f"{did}. The window now shows:\n{self.render_ui_state()}")
 
     @tool
     async def reply(
@@ -206,11 +223,7 @@ class PeekabooUIWorker(UIWorker):
             timeline_from: Start of a span to select on the Timeline, as HH:MM.
             timeline_to: End of that span, as HH:MM.
         """
-        if timeline_day or timeline_hour is not None or timeline_from or timeline_to:
-            await self.send_command(
-                "timeline",
-                {"day": timeline_day, "hour": timeline_hour, "from": timeline_from, "to": timeline_to},
-            )
+        if await self._move_timeline(timeline_day, timeline_hour, timeline_from, timeline_to):
             navigate = None
         if navigate:
             view = navigate.strip().lower()
@@ -227,6 +240,13 @@ class PeekabooUIWorker(UIWorker):
         # No answer given: the action speaks for itself; the request completes quietly.
         await self.respond_to_job(answer or None, tts_speak=True)
         await params.result_callback(None)
+
+    async def _move_timeline(self, day, hour, start, end) -> bool:
+        """The Timeline command for any of the fields given; False if none were."""
+        if not (day or hour is not None or start or end):
+            return False
+        await self.send_command("timeline", {"day": day, "hour": hour, "from": start, "to": end})
+        return True
 
     async def _on_plain_answer(self, aggregator, message):
         if self._pending is None or self._pending.done():

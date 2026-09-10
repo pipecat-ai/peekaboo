@@ -1,6 +1,6 @@
-<h1><div align="center">
+<div align="center">
  <img alt="pipecat" width="300px" height="auto" src="https://raw.githubusercontent.com/pipecat-ai/pipecat/main/pipecat.png">
-</div></h1>
+</div>
 
 # Peekaboo
 

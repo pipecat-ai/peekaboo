@@ -27,7 +27,7 @@ import tempfile
 import sys
 from pathlib import Path
 
-from pipecat.evals.harness import EvalSession
+from pipecat.evals.session import EvalSession
 from pipecat.evals.scenario import EvalScenario
 
 BOT_URL = "ws://localhost:7860"
