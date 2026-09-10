@@ -376,15 +376,17 @@ def parse_args():
     parser.add_argument("--memories-eval", metavar="JS", help="run JavaScript in the memories page after launch")
     parser.add_argument("--window-request", metavar="TEXT", help="hand TEXT to the window agent after launch, as if said by voice")
     parser.add_argument("--show-ids", metavar="IDS", help="open the window on these memory ids after launch (comma-separated)")
-    parser.add_argument("-v", "--verbose", action="count", default=0)
+    parser.add_argument("-v", "--verbose", action="store_true", help="TRACE logging (DEBUG is the default)")
+    parser.add_argument("-q", "--quiet", action="store_true", help="INFO logging only")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     logger.remove()
-    # -v/-vv from the command line; PEEKABOO_LOG from the bundle's environment.
-    level = os.environ.get("PEEKABOO_LOG") or ("TRACE" if args.verbose > 1 else "DEBUG" if args.verbose else "INFO")
+    # DEBUG by default, in the terminal as in the bundle (PEEKABOO_LOG there);
+    # -v is TRACE, -q keeps it to INFO.
+    level = os.environ.get("PEEKABOO_LOG") or ("TRACE" if args.verbose else "INFO" if args.quiet else "DEBUG")
     logger.add(sys.stderr, level=level)
 
     # LLM keys come from Settings (the keychain) and nowhere else; the app
