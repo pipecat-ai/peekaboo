@@ -4,17 +4,11 @@
 
 # Peekaboo
 
-**A voice assistant for your Mac that remembers your screen.** Built with
-[Pipecat](https://github.com/pipecat-ai/pipecat).
-
-Peekaboo sits in the menu bar, listens for its name, and keeps a memory of
-every window you have open. Ask it what you were doing, what a window says,
-or to tell you when something happens.
-
-It is an experiment: a showcase of what Pipecat can do beyond a single
-voice pipeline, and above all of its multi-agent system, where several
-workers with their own pipelines and models cooperate over one bus as one
-app.
+**Peekaboo is an experimental voice assistant for your Mac that remembers
+your screen**, built to showcase [Pipecat](https://github.com/pipecat-ai/pipecat)
+and its multi-agent system. It sits in the menu bar, listens for its name,
+and keeps a memory of every window you have open. Ask it what you were
+doing, what a window says, or to tell you when something happens.
 
 > "Peekaboo, what was I doing this morning?"
 
