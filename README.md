@@ -59,9 +59,23 @@ the menu bar cat, and paste an Anthropic or OpenAI API key in
 Settings ▸ Models. It is stored in your keychain. Then say
 "Peekaboo, what's on my screen?"
 
+To run it as an app:
+
+```bash
+uv run tools/make_app.py
+open dist/Peekaboo.app
+```
+
 ## 🛠️ Development
 
 ```bash
 uv run --with pytest pytest tests/            # unit tests
 uv run evals/run.py --start-bot evals/*.yaml  # headless scenarios
 ```
+
+`docs/PLAN.md` is the design and the record of what was tried, measured,
+and decided.
+
+## License
+
+BSD 2-Clause, as noted in each source file.
