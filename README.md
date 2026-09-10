@@ -23,7 +23,7 @@ window says, or to tell you when something happens.
 | 🖱️ **Runs its window by voice** | Clicks, navigates, and zooms the timeline as if you had. | "Open the third one." |
 | 🔒 **Keeps speech local** | Moonshine hears, Kokoro speaks; nothing leaves your Mac until you say its name. | "Peekaboo." |
 
-## 🧩 Local and cloud
+## 🧠 AI models
 
 Speech stays on your Mac. Only the two language models run in the cloud,
 and only the vision one ever sees a screenshot.
