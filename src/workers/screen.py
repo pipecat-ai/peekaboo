@@ -327,6 +327,7 @@ class ScreenWorker(PipelineWorker):
         llm = models.make_llm(
             models.current().vision,
             name="ScreenLLMService",
+            system_instruction=IMAGE_SYSTEM_INSTRUCTION,
             max_tokens=SCREEN_MAX_TOKENS,
             json_schema=IMAGE_OUTPUT_SCHEMA,
             # A request that hangs on connect is retried once.

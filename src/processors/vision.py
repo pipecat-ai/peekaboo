@@ -17,7 +17,9 @@ from pipecat.frames.frames import (
     InterruptionFrame,
     LLMContextFrame,
     LLMMessagesUpdateFrame,
+    LLMUpdateSettingsFrame,
 )
+from pipecat.services.settings import LLMSettings
 from pipecat.processors.aggregators.llm_context import LLMContext, LLMContextMessage
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -96,8 +98,6 @@ class VisionQueryProcessor(FrameProcessor):
     async def _handle_question(self, frame: QuestionFrame):
         await self.push_frame(InterruptionFrame())
 
-        system_message = {"role": "system", "content": self._system_instruction}
-
         text = frame.query
         if frame.windows:
             lines = "\n".join(json.dumps(item) for item in frame.windows)
@@ -119,7 +119,7 @@ class VisionQueryProcessor(FrameProcessor):
         else:
             question = {"role": "user", "content": text}
 
-        await self.push_frame(LLMMessagesUpdateFrame([system_message, question], run_llm=True))
+        await self.push_frame(LLMMessagesUpdateFrame([question], run_llm=True))
 
 
 class VisionImageProcessor(FrameProcessor):
@@ -142,6 +142,7 @@ class VisionImageProcessor(FrameProcessor):
     def __init__(self, *, system_instruction: str, watchlist: Optional[List[WatchItem]] = None):
         super().__init__()
         self._system_instruction = system_instruction
+        self._instruction_in_effect: Optional[str] = None
         self._watchlist: Dict[int, WatchItem] = {item.id: item for item in watchlist or []}
         self._watchlist_messages: List[LLMContextMessage] = []
         self._last_sent: Optional[SentFrame] = None
@@ -313,11 +314,11 @@ class VisionImageProcessor(FrameProcessor):
         items = watchlist_for(self._watchlist.values(), frame.target)
         watchlist_queries = "\n".join(f"{item.id}. {item.query}" for item in items)
         system_instruction = self._system_instruction + watchlist_queries
-
-        system_message = {
-            "role": "system",
-            "content": system_instruction,
-        }
+        # The instruction is a setting on the service, changed only when the
+        # watch list for this target changes it.
+        if system_instruction != self._instruction_in_effect:
+            self._instruction_in_effect = system_instruction
+            await self.push_frame(LLMUpdateSettingsFrame(delta=LLMSettings(system_instruction=system_instruction)))
 
         query = {
             "text": "Describe the image and check if it contains anything from the watchlist",
@@ -363,7 +364,7 @@ class VisionImageProcessor(FrameProcessor):
         self._busy_since = time.monotonic()
         self._sent_at[frame.target] = self._busy_since
 
-        all_messages = [system_message, *self._watchlist_messages, message]
+        all_messages = [*self._watchlist_messages, message]
 
         await self.push_frame(LLMMessagesUpdateFrame(messages=all_messages, run_llm=True))
 

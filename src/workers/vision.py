@@ -118,6 +118,7 @@ class VisionWorker(LLMWorker):
         llm = models.make_llm(
             models.current().vision,
             name="VisionLLMService",
+            system_instruction=QUERY_SYSTEM_INSTRUCTION,
             # A request that hangs on connect is retried once.
             retry_on_timeout=True,
         )
