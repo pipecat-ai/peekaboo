@@ -102,7 +102,7 @@ sequenceDiagram
   S-->>V: update, spoken as a moment
   H-->>S: answer + memory ids
   S-->>V: answer + memory ids
-  V-->>U: spoken; the window shows the memories
+  V-->>U: spoken, and the window shows the memories
 ```
 
 **Watching** binds a condition to a window inside `screen`; the hit comes
