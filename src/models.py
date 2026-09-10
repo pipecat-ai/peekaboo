@@ -58,7 +58,7 @@ DEFAULT_MODEL_SETTINGS: dict[str, Any] = {
     "voice_llm": {"provider": ANTHROPIC, "model": DEFAULT_MODEL[ANTHROPIC]},
     "vision_llm": {"provider": ANTHROPIC, "model": DEFAULT_MODEL[ANTHROPIC]},
     "stt_model": "medium-streaming",
-    "tts_voice": "am_adam",
+    "tts_voice": "af_heart",
 }
 
 
@@ -82,7 +82,7 @@ class Models:
     voice: ModelChoice = field(default_factory=lambda: ModelChoice(ANTHROPIC, DEFAULT_MODEL[ANTHROPIC]))
     vision: ModelChoice = field(default_factory=lambda: ModelChoice(ANTHROPIC, DEFAULT_MODEL[ANTHROPIC]))
     stt_model: str = "medium-streaming"
-    tts_voice: str = "am_adam"
+    tts_voice: str = "af_heart"
 
     @classmethod
     def from_settings(cls, settings: dict) -> "Models":
