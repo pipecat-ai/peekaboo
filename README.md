@@ -59,7 +59,7 @@ Peekaboo is a showcase of Pipecat on a desktop:
 - **A native macOS audio transport** on `AVAudioEngine`, with echo cancellation and microphone selection.
 - **Local speech** with Moonshine as both recognizer and wake word, and Kokoro as the voice.
 - **RTVI end to end**: the window is a web view running `@pipecat-ai/client-js`, driven by voice through UI commands.
-- **Vision in a pipeline**: a change gate and an image processor that bound cost per window.
+- **Vision in a pipeline**: windows flow through a change gate and an image processor before the model, so only what changed is described, at most every 15 seconds per window.
 
 ## 🛠️ Development
 
