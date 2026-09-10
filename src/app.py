@@ -119,7 +119,6 @@ class App:
 
         store = SQLiteStore(root=self.args.store)
         await store.open()
-        await store.prune_images()
 
         registry = WindowRegistry()
         await registry.start()
@@ -130,6 +129,11 @@ class App:
         settings = load_settings(store.root)
         # Apps never recorded: out of the registry, and cut out of the screen still.
         registry.set_excluded_apps(exclusions.bundle_ids(settings.get("excluded_apps")))
+        # Retention, as set: screenshots first, whole memories when asked.
+        await store.prune(
+            screenshots_days=int(settings.get("keep_screenshots_days") or 0),
+            memories_days=int(settings.get("keep_memories_days") or 0),
+        )
         # The models, from Settings; a change there applies at the next launch.
         models.configure(models.Models.from_settings(settings))
         self._missing_keys = models.missing_keys()

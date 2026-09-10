@@ -49,12 +49,19 @@ RECENT_ITEMS = 10
 
 
 # What a fresh install gets: the system's appearance, and recording from launch.
+# How often retention is applied while the app runs.
+PRUNE_INTERVAL_SECS = 6 * 60 * 60
+
 DEFAULT_SETTINGS = {
     "theme": "system",
     "record_on_launch": True,
     "echo_cancellation": True,
     "input_device": "",
     "excluded_apps": DEFAULT_EXCLUDED_APPS,
+    # Retention, in days; 0 keeps forever. Screenshots go first, the text
+    # stays searchable; whole memories go with the second.
+    "keep_screenshots_days": 7,
+    "keep_memories_days": 0,
     **DEFAULT_MODEL_SETTINGS,
 }
 
@@ -120,6 +127,7 @@ class ShellWorker(BaseUIWorker):
         self._disk: tuple[float, int] = (0.0, 0)
         self._icons: dict[str, str] = {}
         self._refresh: Optional[asyncio.Task] = None
+        self._pruner: Optional[asyncio.Task] = None
         # Questions the page asked, by history job id.
         self._asks: dict[str, str] = {}
 
@@ -127,10 +135,18 @@ class ShellWorker(BaseUIWorker):
         self._loop = asyncio.get_running_loop()
         await super().start()
         self._refresh = asyncio.create_task(self._run_refresh(), name="ui-refresh")
+        self._pruner = asyncio.create_task(self._run_prune(), name="ui-prune")
         if self._memories:
             self._memories.set_theme(self._settings().get("theme", "system"))
 
     async def stop(self):
+        if self._pruner:
+            task, self._pruner = self._pruner, None
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         if self._refresh:
             task, self._refresh = self._refresh, None
             task.cancel()
@@ -403,6 +419,27 @@ class ShellWorker(BaseUIWorker):
         await asyncio.sleep(0.3)  # the response reaches the page first
         restart()
 
+    def retention(self) -> tuple[int, int]:
+        """(screenshots days, memories days) from Settings; 0 is forever."""
+        s = self._settings()
+        return int(s.get("keep_screenshots_days") or 0), int(s.get("keep_memories_days") or 0)
+
+    async def prune_now(self) -> dict:
+        shots, memories = self.retention()
+        result = await self._store.prune(screenshots_days=shots, memories_days=memories)
+        if result["images"] or result["deleted"]:
+            logger.info(f"{self}: retention: {result['images']} memories lost their images, {result['deleted']} deleted")
+        return result
+
+    async def _run_prune(self):
+        """Retention is applied now and then while the app runs, not only at launch."""
+        while True:
+            await asyncio.sleep(PRUNE_INTERVAL_SECS)
+            try:
+                await self.prune_now()
+            except Exception as e:  # noqa: BLE001 - next time
+                logger.warning(f"{self}: retention pass failed: {e}")
+
     async def _rpc_running_apps(self):
         """The regular apps running now, for the exclusions picker."""
         if self._windows is None:
@@ -427,6 +464,8 @@ class ShellWorker(BaseUIWorker):
             result = self._on_setting(str(key), value)
             if inspect.isawaitable(result):
                 await result
+        if key in ("keep_screenshots_days", "keep_memories_days"):
+            await self.prune_now()
         return settings
 
     async def _rpc_stats(self):

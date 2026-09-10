@@ -210,3 +210,20 @@ def test_import_json(tmp_path):
         assert [o.content for o in await store.search("build")] == ["Build finished."]
 
     run(with_store(tmp_path, body))
+
+
+def test_prune_forgets_old_memories_and_keeps_recent_ones(tmp_path):
+    async def body(store):
+        now = int(time.time())
+        old = await store.add(Observation(timestamp=now - 40 * 86400, content="an old terminal session"))
+        recent = await store.add(Observation(timestamp=now - 2 * 86400, content="a recent terminal session"))
+        result = await store.prune(screenshots_days=7, memories_days=30)
+        assert result["deleted"] == 1
+        assert await store.get([old.id]) == []
+        assert [o.id for o in await store.get([recent.id])] == [recent.id]
+        # The search index followed the delete.
+        assert [o.id for o in await store.search("terminal")] == [recent.id]
+        # Zero keeps everything.
+        assert (await store.prune(screenshots_days=0, memories_days=0))["deleted"] == 0
+
+    run(with_store(tmp_path, body))

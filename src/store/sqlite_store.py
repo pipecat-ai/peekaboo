@@ -295,6 +295,38 @@ class SQLiteStore:
         pruned += await self._run(self._prune_images_sync, stills_cutoff, " AND kind = 'screen'")
         return pruned
 
+    async def prune(self, *, screenshots_days: int, memories_days: int) -> dict:
+        """Apply the retention settings: images older than ``screenshots_days``
+        go (the text stays searchable), whole memories older than
+        ``memories_days`` go, files and all. Zero means keep forever. Screen
+        stills, the pictures of moments, never outlive ``STILL_RETENTION_DAYS``.
+
+        Returns how many observations lost their images and how many were deleted.
+        """
+        if screenshots_days > 0:
+            images = await self.prune_images(
+                older_than_days=screenshots_days, stills_older_than_days=min(screenshots_days, STILL_RETENTION_DAYS)
+            )
+        else:
+            # Screenshots forever; the stills still go.
+            stills_cutoff = int((datetime.now() - timedelta(days=STILL_RETENTION_DAYS)).timestamp())
+            images = await self._run(self._prune_images_sync, stills_cutoff, " AND kind = 'screen'")
+        deleted = 0
+        if memories_days > 0:
+            cutoff = int((datetime.now() - timedelta(days=memories_days)).timestamp())
+            deleted = await self._run(self._prune_observations_sync, cutoff)
+        return {"images": images, "deleted": deleted}
+
+    def _prune_observations_sync(self, cutoff: int) -> int:
+        # Their files first (shared frames stay while a newer observation uses them), then the rows.
+        self._prune_images_sync(cutoff, "")
+        count = self._db.execute("SELECT count(*) FROM observations WHERE ts < ?", (cutoff,)).fetchone()[0]
+        if count:
+            self._db.execute("DELETE FROM observations WHERE ts < ?", (cutoff,))
+            self._db.commit()
+            logger.info(f"Deleted {count} observations older than {cutoff}")
+        return int(count)
+
     def _prune_images_sync(self, cutoff: int, extra: str) -> int:
         rows = self._db.execute(
             "SELECT id, screenshot_path, thumbnail_path FROM observations "
