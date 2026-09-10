@@ -23,6 +23,13 @@ or to tell you when something happens.
 - 🖱️ **Runs its window by voice.** "Open the third one", "show me the timeline from last Friday", "go to Settings".
 - 🔒 **Keeps speech local.** Moonshine hears, Kokoro speaks, nothing leaves your Mac until you say its name.
 
+## 📋 Requirements
+
+- macOS 14 or later.
+- Python 3.12 and [uv](https://docs.astral.sh/uv/).
+- A Pipecat checkout next to this one, at `../pipecat`.
+- An Anthropic or OpenAI API key. Speech is local and needs none.
+
 ## 🚀 Getting started
 
 ```bash
@@ -59,9 +66,7 @@ uv run --with pytest pytest tests/            # unit tests
 uv run evals/run.py --start-bot evals/*.yaml  # headless scenarios
 ```
 
-Requires macOS 14, Python 3.12, [uv](https://docs.astral.sh/uv/), and a
-Pipecat checkout at `../pipecat`. `PLAN.md` is the design and the record of
-what was tried and decided.
+`PLAN.md` is the design and the record of what was tried and decided.
 
 ## License
 
