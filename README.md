@@ -39,6 +39,57 @@ All of it is chosen in Settings ▸ Models. Nothing you say leaves the Mac
 until you say "Peekaboo"; nothing on your screen leaves it except the
 frames sent to the Vision LLM to be described.
 
+## ⚙️ How it works
+
+Peekaboo is six Pipecat workers on one runner, talking over one bus. Each
+owns a pipeline, or a model, or a piece of the Mac, and hands work to the
+others as jobs.
+
+```mermaid
+flowchart LR
+  mic([Microphone and speaker]) <--> voice
+  display([Display and windows]) --> screen
+  subgraph bus[Pipecat workers on one bus]
+    voice["voice<br/>Moonshine → Voice LLM → Kokoro"]
+    screen["screen<br/>capture → change gate → Vision LLM"]
+    vision["vision<br/>look answers, Vision LLM"]
+    history["history<br/>search answers, Voice LLM"]
+    ui["ui<br/>window agent, Voice LLM"]
+    shell["shell<br/>menu bar, window, settings"]
+  end
+  voice -- "look" --> vision
+  vision -- "frame" --> screen
+  vision -- "search" --> history
+  voice -- "watch" --> screen
+  voice -- "window" --> ui
+  screen --> store[(SQLite, FTS, frames)]
+  history --> store
+  shell --> store
+  ui -- "UI commands" --> page
+  shell <-- "RTVI" --> page["Window<br/>web view, Pipecat JS client"]
+```
+
+- **Remembering.** Every two seconds `screen` takes a still of the display
+  and of each window. A change gate drops what looks the same as last
+  time; what changed goes to the Vision LLM, at most every 15 seconds per
+  window, and the description, the text read off it, and the frame are
+  written to the store. Watchers check each description against their
+  condition.
+- **Asking.** "What was I doing this morning?" reaches `voice`, which hands
+  it to `vision` as a `look` job. `vision` asks `screen` for a fresh frame,
+  reads the latest capture of every window, and answers from the present
+  when it can. For the past it hands the question to `history`, which
+  searches the store with its tools and answers in two sentences. Whatever
+  comes back is a moment, spoken by `voice` when nobody is talking.
+- **Watching.** "Tell me when the build finishes" becomes a `watch` job on
+  `screen`, bound to a window or to every window. A hit comes back over the
+  bus and is spoken.
+- **The window.** The window is a web view running the Pipecat JavaScript
+  client. Its data calls are answered by `shell` over RTVI, and everything
+  the app pushes is a UI command. "Open the first one" goes to `ui`, a
+  Pipecat `UIWorker` that reads the page's accessibility snapshot and clicks
+  through the same commands.
+
 ## 🔧 Built on Pipecat
 
 Peekaboo is a showcase of what [Pipecat](https://github.com/pipecat-ai/pipecat)
