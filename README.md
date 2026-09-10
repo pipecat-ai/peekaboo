@@ -15,13 +15,15 @@ or to tell you when something happens.
 
 ## ✨ What it can do
 
-- 🧠 **Remembers your screen.** Every window is captured as it changes and described, with the text that was on it.
-- 🗣️ **Answers from memory.** "What PR did I look at yesterday?" gets a short spoken answer and the screenshots behind it.
-- 👀 **Looks when asked.** "What does the terminal say?" reads the window right now.
-- 🔔 **Watches for you.** "Tell me when the build finishes" or "when I get new Slack messages", and it speaks up.
-- 📅 **Catches meeting reminders** from any app's notification, and joins with a word.
-- 🖱️ **Runs its window by voice.** "Open the third one", "show me the timeline from last Friday", "go to Settings".
-- 🔒 **Keeps speech local.** Moonshine hears, Kokoro speaks, nothing leaves your Mac until you say its name.
+| | What happens | You say |
+|---|---|---|
+| 🧠 **Remembers your screen** | Every window is captured as it changes and described, with the text that was on it. | "What was I doing this morning?" |
+| 🗣️ **Answers from memory** | A short spoken answer, and the screenshots behind it in its window. | "What PR did I look at yesterday?" |
+| 👀 **Looks when asked** | Reads a window right now. | "What does the terminal say?" |
+| 🔔 **Watches for you** | Binds a condition to a window and speaks up when it happens. | "Tell me when the build finishes." |
+| 📅 **Catches meeting reminders** | Reads any app's notification banner and joins with a word. | "Yes, join it." |
+| 🖱️ **Runs its window by voice** | Clicks, navigates, and zooms the timeline as if you had. | "Open the third one." |
+| 🔒 **Keeps speech local** | Moonshine hears, Kokoro speaks; nothing leaves your Mac until you say its name. | "Peekaboo." |
 
 ## 📋 Requirements
 
