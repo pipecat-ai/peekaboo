@@ -21,13 +21,13 @@ turns:
         absent: true
         within_ms: 20000
 
-  # A question about the past goes to the history worker, which searches the
-  # store. Look for search_history / timeline calls in the bot log.
+  # A question about the past goes straight to the history worker, which
+  # searches the store: no picture, no vision model.
   - user: "What was on my screen yesterday afternoon?"
     expect:
       - event: function_call
         calls:
-          - name: look
+          - name: remember
 
   - expect:
       - event: function_call

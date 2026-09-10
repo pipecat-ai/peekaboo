@@ -62,6 +62,7 @@ flowchart LR
   end
   voice -- "look" --> vision
   vision -- "frame" --> screen
+  voice -- "remember" --> history
   vision -- "search" --> history
   voice -- "watch" --> screen
   voice -- "window" --> ui
@@ -79,9 +80,9 @@ seconds per window, and the description, the text read off it, and the
 frame are written to the store, all inside that one pipeline. What comes out
 of it is the memory the others read, and the occasional watcher hit.
 
-**Asking** is a chain of jobs. `voice` acknowledges at once and stays free
-to listen; the answer arrives later as a moment, spoken when nobody is
-talking:
+**Asking about now** goes to `vision`, which takes a fresh picture.
+`voice` acknowledges at once and stays free to listen; the answer arrives
+later as a moment, spoken when nobody is talking:
 
 ```mermaid
 sequenceDiagram
@@ -89,19 +90,32 @@ sequenceDiagram
   participant V as voice
   participant S as vision
   participant C as screen
+  U->>V: "What does the terminal say?"
+  V-->>U: "One moment."
+  V->>S: look(question, "the terminal")
+  S->>C: frame(fresh, "the terminal")
+  C-->>S: picture of that window now
+  S->>S: Vision LLM: the picture, every window's latest capture
+  S-->>V: answer + memory ids
+  V-->>U: spoken, and the window shows the memories
+```
+
+**Asking about the past** skips the picture: `voice` sends the question
+straight to `history`, which searches the store with its tools and narrates
+as it goes:
+
+```mermaid
+sequenceDiagram
+  participant U as You
+  participant V as voice
   participant H as history
   U->>V: "What was I doing this morning?"
-  V-->>U: "One moment."
-  V->>S: look(question)
-  S->>C: frame(fresh)
-  C-->>S: picture of the screen now
-  S->>S: Vision LLM: the picture, every window's latest capture
-  S->>H: search(question)
+  V-->>U: "Let me think back."
+  V->>H: search(question)
   H->>H: Voice LLM with tools over the store
-  H-->>S: update: "checking this morning"
-  S-->>V: update, spoken as a moment
-  H-->>S: answer + memory ids
-  S-->>V: answer + memory ids
+  H-->>V: update: "checking this morning"
+  V-->>U: spoken as a moment
+  H-->>V: answer + memory ids
   V-->>U: spoken, and the window shows the memories
 ```
 

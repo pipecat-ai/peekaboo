@@ -60,7 +60,7 @@ from processors.conversation import ConversationState
 import models
 from processors.wake import LocalTranscriptionFrame, WakeGate
 from processors.screen_bridge import ScreenBridge
-from workers.names import SCREEN_WORKER, UI_WORKER, VISION_WORKER, VOICE_WORKER
+from workers.names import HISTORY_WORKER, SCREEN_WORKER, UI_WORKER, VISION_WORKER, VOICE_WORKER
 
 if TYPE_CHECKING:
     from store.sqlite_store import SQLiteStore
@@ -75,6 +75,7 @@ MEETING_MOMENT_LIFETIME_SECS = 20 * 60
 # Spoken the moment a screen question goes out, instead of a second LLM call
 # to phrase an acknowledgement. Saves about 1.3 s on every question.
 LOOK_FILLER = "One moment."
+REMEMBER_FILLER = "Let me think back."
 WATCH_FILLER = "I'll let you know."
 
 # Spoken on launch. The first time a voice says it the audio is kept as a WAV
@@ -119,10 +120,10 @@ SYSTEM_INSTRUCTION = """
 
 You are a voice assistant on the user's Mac. You cannot see the screen yourself
 and you have no memory of it; your tools do. [look] sees the screen or one
-window right now and also has a searchable record of everything that was on
-screen going back days. [watch] tells the user when something happens on the
-screen or in one window. Answers and watch hits are delivered to the user
-separately, after your turn.
+window right now. [remember] searches the record of everything that was on
+screen, going back days. [watch] tells the user when something happens on
+the screen or in one window. Answers and watch hits are delivered to the
+user separately, after your turn.
 
 Targets: when the user names a window or an app ("the terminal", "Chrome",
 "the build window"), pass what they said as the target. Leave the target empty
@@ -136,15 +137,18 @@ Tool-use rules:
   past three in the afternoon", "around five PM"; never seconds, never
   24-hour or ISO forms, and no date when it is today.
 
-- If the user asks about anything that is or was on the screen, at any time,
-  today or days ago, call [look]. Never say you have no access to the past;
-  the tool does. NEVER answer the question yourself.
+- If the user asks about what is on the screen or in a window now ("what
+  does the terminal say", "is the build done", "what's in my inbox"), call
+  [look]. If they ask about the past, anything before this moment ("what
+  was I doing this morning", "what PR did I look at yesterday", "what did
+  that error say earlier"), call [remember]. Never say you have no access
+  to the past; the tool does. NEVER answer the question yourself.
 
 - If the user wants to be told when something happens, call [watch] with the
   condition in their words. To stop, call [unwatch]. [list_watchers] says
   what is being watched.
 
-- When you call [look] or [watch], call it without saying anything first. An
+- When you call [look], [remember] or [watch], call it without saying anything first. An
   acknowledgement is spoken for you, and the result arrives separately.
 
 - After an answer about the past, "show me" means call [show_me]: it opens
@@ -174,13 +178,13 @@ Tool-use rules:
   never answer those yourself, never say you cannot click. That includes
   questions about what the Timeline shows: a block, an hour, a selection,
   "the last block around three", "what was I doing in that one". Those are
-  about what is on the window, not a search of the past; [look] is for the
-  past when nothing on the window is being pointed at. Moving in time is
+  about what is on the window, not a search of the past; [remember] is for
+  the past when nothing on the window is being pointed at. Moving in time is
   window navigation too: "go to last Friday", "can we go to yesterday",
   "show me three PM", "jump to the 14th", "next day", "back a week" mean
   [window] with their words; the window knows what day it is and moves the
   Timeline. Only a question about what happened ("what was I doing last
-  Friday") is a [look]. After a window
+  Friday") is a [remember]. After a window
   request, a bare follow-up is still for [window]: "the third", "just open
   it", "no, the other one", "I meant the second". You cannot see the window:
   never say what it shows or that something is already open; hand it over.
@@ -370,6 +374,7 @@ class VoiceWorker(LLMWorker):
         *,
         vision_worker: str = VISION_WORKER,
         screen_worker: str = SCREEN_WORKER,
+        history_worker: str = HISTORY_WORKER,
         ui_worker: str = UI_WORKER,
         screen_from_transport: bool = True,
         open_links: bool = True,
@@ -394,6 +399,7 @@ class VoiceWorker(LLMWorker):
         self._transport = transport
         self._vision_worker = vision_worker
         self._screen_worker = screen_worker
+        self._history_worker = history_worker
         self._ui_worker = ui_worker
         self._open_links = open_links
         self._speech = speech
@@ -673,6 +679,22 @@ class VoiceWorker(LLMWorker):
         if self._on_asked:
             self._on_asked(question)
         await self._acknowledge(params, LOOK_FILLER)
+
+    @tool
+    async def remember(self, params: FunctionCallParams, question: str):
+        """Answer a question about the past from the record of what was on screen: earlier today or on a past day. What the user was doing, what a window said, what they looked at.
+
+        Args:
+            question: The exact question the user is asking.
+        """
+        # Straight to the history worker: no picture, no vision model. The
+        # answer comes back as a job message and is spoken then.
+        job_id = await self.request_job(self._history_worker, params=JobParams(name="search", payload={"query": question}))
+        self._look_jobs.add(job_id)
+        self._look_questions[job_id] = question
+        if self._on_asked:
+            self._on_asked(question)
+        await self._acknowledge(params, REMEMBER_FILLER)
 
     @tool
     async def watch(self, params: FunctionCallParams, condition: str, target: Optional[str] = None):

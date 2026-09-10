@@ -72,3 +72,10 @@ turns:
       - event: function_call
         calls:
           - name: window
+
+  # The past is a search, not a look: no frame, no vision model.
+  - user: "What was I doing this morning?"
+    expect:
+      - event: function_call
+        calls:
+          - name: remember
