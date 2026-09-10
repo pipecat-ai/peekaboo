@@ -43,9 +43,10 @@ you say "Peekaboo".
 
 ## ⚙️ How it works
 
-Peekaboo is six Pipecat workers on one runner, talking over one bus. Each
-owns a pipeline, or a model, or a piece of the Mac, and hands work to the
-others as jobs.
+Peekaboo is a showcase of [Pipecat](https://github.com/pipecat-ai/pipecat)
+beyond a single voice pipeline, above all of its multi-agent system: six
+workers on one runner, talking over one bus. Each owns a pipeline, or a
+model, or a piece of the Mac, and hands work to the others as jobs.
 
 ```mermaid
 flowchart LR
@@ -128,22 +129,14 @@ is a UI command. "Open the first one" goes from `voice` to `ui`, a Pipecat
 `UIWorker` that reads the page's accessibility snapshot and clicks through
 the same commands, then speaks its short reply through `voice`'s TTS.
 
-## 🔧 Built on Pipecat
+What Pipecat provides here:
 
-Peekaboo is a showcase of what [Pipecat](https://github.com/pipecat-ai/pipecat)
-can do beyond a single voice pipeline, and above all of its multi-agent
-system: several workers with their own pipelines and models cooperating over
-one bus as one app.
-
-| Pipecat feature | How Peekaboo uses it |
-|---|---|
-| **Multi-agent system** | Six workers on one runner and one bus: `voice`, `screen`, `vision`, `history`, the window agent, and the shell. They hand work to each other as jobs and answer with updates and results. |
-| **LLM workers** | `voice`, `vision` and `history` are `LLMWorker`s whose tools are `@tool` methods; the window agent is a `UIWorker` that reads the page's accessibility snapshots. |
-| **Local transport** | A native macOS audio transport on `AVAudioEngine`, with the OS echo canceller, microphone selection, and RTVI messages in both directions. |
-| **Local speech** | Moonshine, a segmented STT service, hears everything and doubles as the wake word; Kokoro speaks. Nothing leaves the Mac until Peekaboo is awake. |
-| **Pipecat clients** | The window is a web view running `@pipecat-ai/client-js` over a bridge transport, so voice and mouse drive the same page through UI commands. |
-| **Vision pipelines** | Windows flow through a change gate and an image processor before the model, so only what changed is described, at most every 15 seconds per window. |
-| **Evals** | Headless scenarios on Pipecat's eval transport check tool routing, screen questions, watchers, and reminders. |
+- **Workers, a bus, and jobs**: the six workers, their jobs, updates, and results.
+- **`LLMWorker` and `UIWorker`**: `voice`, `vision`, and `history` register tools by decorating methods; `ui` acts on the page from its snapshots.
+- **A native macOS audio transport** on `AVAudioEngine`, with echo cancellation and microphone selection.
+- **Local speech services**: Moonshine as a segmented recognizer, Kokoro as the voice.
+- **The JavaScript client and RTVI**: the window is a Pipecat client.
+- **Evals**: headless scenarios that check routing, screen questions, watchers, and reminders.
 
 ## 📋 Requirements
 
