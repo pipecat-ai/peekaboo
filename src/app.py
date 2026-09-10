@@ -53,7 +53,7 @@ import models
 from workers.shell import ShellWorker, load_settings
 from workers.ui import PeekabooUIWorker
 from workers.vision import VisionWorker
-from workers.voice import VoiceWorker
+from workers.voice import ONBOARDING_GREETING, VoiceWorker
 
 APP_ICON = Path(__file__).parent / "macos" / "assets" / "appicon.png"
 
@@ -246,13 +246,16 @@ class App:
 
         @transport.event_handler("on_ready")
         async def on_ready(transport):
+            greeting = None
             if self._missing_keys:
-                # Nothing to talk with yet: open the window on Settings.
-                self.shell.show_screen("settings")
+                # Nothing to talk with yet: say so, and open the window on
+                # Settings at the key that is missing.
+                greeting = ONBOARDING_GREETING
+                self.shell.onboarding(self._missing_keys[0])
             recording = self.shell.settings().get("record_on_launch", True)
             logger.info(f"audio is up; starting the conversation ({'recording' if recording else 'not recording'})")
             self.shell.set_recording_state(recording)
-            await voice.start_session("local", recording=recording)
+            await voice.start_session("local", recording=recording, greeting=greeting)
 
         try:
             await self.runner.run()

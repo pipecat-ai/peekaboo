@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from loguru import logger
 from pipecat.bus.messages import (
+    BusTTSSpeakMessage,
     BusJobResponseMessage,
     BusJobResponseUrgentMessage,
     BusJobUpdateMessage,
@@ -254,6 +255,12 @@ class ShellWorker(BaseUIWorker):
         self.open_memories()
         self._push("show_ask", {"id": int(ask_id)})
 
+    def onboarding(self, provider: str):
+        """The first run: the window on Settings, scrolled to the API key
+        that is missing, with the row lit. Any thread."""
+        self.open_memories()
+        self._push("onboarding", {"provider": str(provider)})
+
     def show_screen(self, name: str):
         """Open the window if it is closed and switch it to a screen (ask,
         searches, timeline, watchers, settings). Any thread."""
@@ -405,6 +412,11 @@ class ShellWorker(BaseUIWorker):
         if not ok and key:
             raise RuntimeError("the keychain refused the key")
         logger.info(f"{self}: API key for {provider} {'stored' if key else 'removed'}")
+        if key:
+            # Said aloud too: the page's note says the same.
+            await self.send_bus_message(
+                BusTTSSpeakMessage(source=self.name, target=self._voice_worker, text="Got it. Restart me and we're ready.", append_to_context=False)
+            )
         return {"provider": provider, "has_key": bool(models.api_key(provider))}
 
     async def _rpc_restart(self):

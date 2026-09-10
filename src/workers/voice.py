@@ -5,6 +5,7 @@
 #
 
 import asyncio
+import hashlib
 from datetime import datetime
 import io
 import os
@@ -81,6 +82,11 @@ WATCH_FILLER = "I'll let you know."
 # Spoken on launch. The first time a voice says it the audio is kept as a WAV
 # under the store, and every launch after that plays the file: no TTS call.
 GREETING = "Welcome to Peekaboo."
+# The first run, with no API key yet: the window opens on Settings meanwhile.
+ONBOARDING_GREETING = (
+    "Welcome to Peekaboo. It looks like this is the first time you run me. "
+    "Let's go to Settings, where you can enter your API key. Once it's saved, restart me and we're ready."
+)
 
 # list_windows is read to a model, not a person; keep it short.
 MAX_LISTED_WINDOWS = 25
@@ -555,11 +561,13 @@ class VoiceWorker(LLMWorker):
 
         return llm, Pipeline(processors)
 
-    async def start_session(self, client_id: str, *, recording: bool = True):
+    async def start_session(self, client_id: str, *, recording: bool = True, greeting: Optional[str] = None):
         """Kick off the conversation once the client is connected.
 
         Call after screen capture is enabled on the transport. With
         ``recording`` false the screen worker is left idle until asked.
+        ``greeting`` replaces the fixed opening line (the first run says
+        where the API key goes).
         """
         if self._screen_bridge:
             self._screen_bridge.set_client_id(client_id)
@@ -568,7 +576,7 @@ class VoiceWorker(LLMWorker):
         # A fresh conversation per connection, opened with a fixed line and no
         # LLM call; from the cache when this voice has said it before.
         await self.queue_frame(LLMMessagesUpdateFrame(messages=[], run_llm=False))
-        await self._greet()
+        await self._greet(greeting or GREETING)
 
         if recording:
             await self.request_job(
@@ -590,8 +598,10 @@ class VoiceWorker(LLMWorker):
             await self.cancel_task(task)
         await super().cleanup()
 
-    async def _greet(self):
-        cached = self._greeting_cache / f"{self._voice_key()}.wav" if self._greeting_cache else None
+    async def _greet(self, text: str = GREETING):
+        # Cached per voice and per line: the onboarding line is not the usual one.
+        suffix = "" if text == GREETING else f"-{hashlib.sha1(text.encode()).hexdigest()[:8]}"
+        cached = self._greeting_cache / f"{self._voice_key()}{suffix}.wav" if self._greeting_cache else None
         if cached and cached.exists():
             try:
                 with wave.open(str(cached), "rb") as w:
@@ -603,7 +613,7 @@ class VoiceWorker(LLMWorker):
                 logger.warning(f"{self}: cached greeting unusable, speaking it: {e}")
         if cached:
             self._greeting_recorder.arm(cached)
-        await self.say(GREETING)
+        await self.say(text)
 
     async def say(self, text: str):
         """Speak text directly, bypassing the LLM.

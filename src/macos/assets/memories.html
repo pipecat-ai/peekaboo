@@ -537,6 +537,19 @@ const byRef = (p) => {
 function uiCommand(command, p) {
   switch (command) {
     case "navigate": show(String(p.view || "ask")); return true;
+    case "onboarding": {
+      // The first run: Settings, scrolled to the missing key, the row lit.
+      show("settings");
+      setTimeout(() => {
+        const row = $("#key-" + (p.provider || "anthropic")) || $("#key-anthropic");
+        if (!row) return;
+        row.hidden = false;
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 2400);
+        const input = row.querySelector(".key"); if (input) input.focus();
+      }, 400);
+      return true;
+    }
     case "timeline": applyTimeline(p); return true;
     case "click": { const el = byRef(p); if (el) { el.scrollIntoView({ block: "nearest" }); el.click(); } return true; }
     case "scroll_to": byRef(p)?.scrollIntoView({ block: "center", behavior: "smooth" }); return true;

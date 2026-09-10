@@ -42,6 +42,9 @@ MODELS = {
 
 MOONSHINE_MODELS = ["tiny", "base", "tiny-streaming", "base-streaming", "small-streaming", "medium-streaming"]
 
+# What a service gets when no key is stored: it constructs, and every call fails.
+MISSING_KEY = "missing"
+
 DEFAULT_MODEL = {ANTHROPIC: "claude-haiku-4-5", OPENAI: "gpt-4.1"}
 
 # Kokoro's voices, from its voices file when it is on disk, else this list.
@@ -142,7 +145,9 @@ def make_llm(
     client read timeout is an Anthropic feature; other providers get the
     model and the prompt. ``json_schema`` asks for structured output in
     that shape, in each provider's own way."""
-    key = api_key(choice.provider)
+    # No key yet: the service is built anyway with a placeholder, so the app
+    # comes up and opens Settings; its first call fails as unauthorised.
+    key = api_key(choice.provider) or MISSING_KEY
     if choice.provider == OPENAI:
         from pipecat.services.openai.llm import OpenAILLMService
 
