@@ -276,6 +276,10 @@
   .setting .fixed { font-size: 13px; color: var(--muted); }
   .select.model { width: 180px; }
   .select.key { width: 240px; font: 12.5px var(--mono); }
+  .noshot { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: rgba(255,255,255,.85); font-size: 12px; letter-spacing: .02em; }
+  .noshot img.noshot-icon { width: 36px !important; height: 36px !important; border-radius: 9px; object-fit: contain; opacity: .95; }
+  .noshot.small img.noshot-icon { width: 22px !important; height: 22px !important; border-radius: 6px; }
+  .noshot span { font-size: 11.5px; opacity: .8; }
   .excllist { list-style: none; margin: 0 0 14px; padding: 0; max-width: 720px; height: 176px; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
   .excllist li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 6px 0 12px; height: 34px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
   .excllist li:last-child { border-bottom: 0; }
@@ -577,6 +581,12 @@ function appColor(app) {
   let h = 0; for (const c of a) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length];
 }
 const icons = {};  // app name -> data url, from the registry
+// The tile of a memory whose screenshot was pruned by retention: the app's
+// colour and icon, and a word about why there is no picture.
+function shotOrPlaceholder(o, small = false) {
+  if (o.thumbnail_url) return `<img src="${o.thumbnail_url}" alt="">`;
+  return `<div class="noshot${small ? " small" : ""}" style="background:${appColor(o.app || "Screen")}">${appIcon(o.app || "Screen", "noshot-icon")}${small ? "" : `<span>Screenshot pruned</span>`}</div>`;
+}
 function appIcon(app, cls = "appicon") {
   const src = icons[app];
   if (src) return `<img class="${cls}" src="${src}" alt="">`;
@@ -623,7 +633,7 @@ function card(o) {
   el.setAttribute("role", "button");
   el.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmm(o.ts)}: ${brief(o.title ? `${o.title}. ${o.content}` : o.content)}`);
   el.innerHTML = `
-    <div class="shot" data-a11y-exclude>${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
+    <div class="shot" data-a11y-exclude>${shotOrPlaceholder(o)}</div>
     <div class="who" data-a11y-exclude>${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b><span class="time">${hhmm(o.ts)}</span></div>
     <div class="title" data-a11y-exclude>${esc(o.title || "")}</div>
     <div class="desc" data-a11y-exclude>${hi(o.content)}</div>`;
@@ -1052,7 +1062,7 @@ function hover(row, e) {
     track.insertAdjacentHTML("beforeend", `<div class="marker hover" style="left:${x}%"></div><div class="marker-label hover" style="left:${x}%">${hhmmss(o.ts)}</div>`);
     const b = row.blocks.find((k) => String(k.from) === seg.dataset.key);
     const others = b ? Object.entries(b.apps).filter(([a]) => a !== b.app).map(([a, n]) => `${a} ${n}`) : [];
-    tip.innerHTML = `<div class="shot">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}</div>
+    tip.innerHTML = `<div class="shot">${shotOrPlaceholder(o, true)}</div>
       <div class="who">${appIcon(o.app)}<span>${o.kind === "screen" ? "in " : ""}${esc(o.app || "Screen")}</span><span class="sub">${hhmmss(o.ts)}</span></div>
       <div class="title">${esc(o.title || (o.content ? o.content.split(".")[0] : ""))}</div>
       ${b ? `<div class="sub"><span class="sw" style="background:${appColor(b.app)}"></span>${esc(b.app)} ${pad(row.hour)}:${pad(b.from)}–${pad(row.hour)}:${pad(b.to + 1)} · ${b.ids.length} ${b.ids.length === 1 ? "memory" : "memories"}${others.length ? ` · also ${esc(others.join(", "))}` : ""}</div>` : ""}`;
@@ -1120,7 +1130,7 @@ function renderStrip() {
   stripItems.forEach((o, index) => {
     const f = document.createElement("div"); f.className = "frame" + (tlSelected && o.id === tlSelected.id ? " on" : "");
     const on = tlSelected && o.id === tlSelected.id;
-    f.innerHTML = `<div class="img">${o.thumbnail_url ? `<img src="${o.thumbnail_url}" alt="">` : ""}${on ? `<button class="openbtn" role="button" aria-label="Open ${esc(o.app || "Screen")} at ${hhmmss(o.ts)} in the Viewer">Open</button>` : ""}</div>
+    f.innerHTML = `<div class="img">${shotOrPlaceholder(o, true)}${on ? `<button class="openbtn" role="button" aria-label="Open ${esc(o.app || "Screen")} at ${hhmmss(o.ts)} in the Viewer">Open</button>` : ""}</div>
       <div class="t">${appIcon(o.app)}<b>${esc(o.app || "Screen")}</b></div><div class="when">${hhmmss(o.ts)}</div>`;
     f.title = o.title || "";
     f.setAttribute("role", "button"); f.setAttribute("aria-label", `${o.app || "Screen"} at ${hhmmss(o.ts)}: ${brief(o.title ? `${o.title}. ${o.content}` : o.content, 120)}`); f.setAttribute("aria-selected", tlSelected && o.id === tlSelected.id ? "true" : "false");
