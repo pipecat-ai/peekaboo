@@ -18,6 +18,7 @@ Settings applies at the next launch.
 """
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -132,13 +133,15 @@ def make_llm(
     name: str,
     system_instruction: Optional[str] = None,
     max_tokens: Optional[int] = None,
-    thinking_budget: Optional[int] = None,
-    adaptive_thinking: bool = False,
+    json_schema: Optional[dict] = None,
     read_timeout_secs: Optional[float] = None,
     **kwargs,
 ):
-    """An LLM service for a choice. Thinking and the client read timeout
-    are Anthropic features; other providers get the model and the prompt."""
+    """An LLM service for a choice. No extended thinking anywhere: every
+    answer is spoken or describes a picture, and speed matters more. The
+    client read timeout is an Anthropic feature; other providers get the
+    model and the prompt. ``json_schema`` asks for structured output in
+    that shape, in each provider's own way."""
     key = api_key(choice.provider)
     if choice.provider == OPENAI:
         from pipecat.services.openai.llm import OpenAILLMService
@@ -148,6 +151,10 @@ def make_llm(
             settings["system_instruction"] = system_instruction
         if max_tokens is not None:
             settings["max_tokens"] = max_tokens
+        if json_schema is not None:
+            settings["extra"] = {
+                "response_format": {"type": "json_schema", "json_schema": {"name": "answer", "schema": json_schema, "strict": True}}
+            }
         return OpenAILLMService(name=name, api_key=key, settings=OpenAILLMService.Settings(**settings), **kwargs)
 
     from pipecat.services.anthropic.llm import AnthropicLLMService
@@ -157,10 +164,9 @@ def make_llm(
         settings["system_instruction"] = system_instruction
     if max_tokens is not None:
         settings["max_tokens"] = max_tokens
-    if thinking_budget:
-        settings["thinking"] = AnthropicLLMService.ThinkingConfig(type="enabled", budget_tokens=thinking_budget)
-    elif adaptive_thinking:
-        settings["thinking"] = AnthropicLLMService.ThinkingConfig(type="adaptive", display="omitted")
+    if json_schema is not None:
+        # Structured outputs: output_config.format, no beta header.
+        settings["extra"] = {"extra_body": {"output_config": {"format": {"type": "json_schema", "schema": json_schema}}}}
     if read_timeout_secs is not None:
         import httpx
         from anthropic import AsyncAnthropic

@@ -10,7 +10,7 @@ import io
 import json
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from loguru import logger
@@ -177,20 +177,18 @@ WATCHLIST ITEMS:
 # Strict on purpose: the watchlist ids route hits to watchers, so they are
 # required (empty for a plain description) and integers. The schema validator
 # accepts no length caps, so the token limit below is what bounds a runaway.
-IMAGE_OUTPUT_FORMAT = {
-    "type": "json_schema",
-    "schema": {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["description", "watchlist"]},
-            "content": {"type": "string"},
-            "watchlist": {"type": "array", "items": {"type": "integer"}},
-            "timestamp": {"type": "integer"},
-            "verbatim_text": {"type": "array", "items": {"type": "string"}},
-        },
-        "required": ["type", "content", "watchlist", "timestamp", "verbatim_text"],
-        "additionalProperties": False,
+# What an analysis must look like; the model is held to it (structured output).
+IMAGE_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["description", "watchlist"]},
+        "content": {"type": "string"},
+        "watchlist": {"type": "array", "items": {"type": "integer"}},
+        "timestamp": {"type": "integer"},
+        "verbatim_text": {"type": "array", "items": {"type": "string"}},
     },
+    "required": ["type", "content", "watchlist", "timestamp", "verbatim_text"],
+    "additionalProperties": False,
 }
 
 # A description is a paragraph and a dozen strings; anything longer is the
@@ -252,6 +250,13 @@ class ScreenWorker(PipelineWorker):
     ):
         self._store = store
         self._frame_source = source or TransportScreenSource()
+        # Reminders are read off notification banners where the source
+        # captures them; elsewhere a notification shows on the screen itself.
+        self._notification_watch = (
+            NOTIFICATION_WATCH
+            if getattr(self._frame_source, "captures_banners", False)
+            else replace(NOTIFICATION_WATCH, target=("banner", "screen"))
+        )
         # With a window registry, watchers follow their app across its windows.
         if registry is not None:
             registry.on_event(self._on_registry_event)
@@ -262,7 +267,7 @@ class ScreenWorker(PipelineWorker):
         self._last_hit: dict[int, float] = {}
         self._analyses_total = 0
         self._image_processor = VisionImageProcessor(
-            system_instruction=IMAGE_SYSTEM_INSTRUCTION, watchlist=[NOTIFICATION_WATCH]
+            system_instruction=IMAGE_SYSTEM_INSTRUCTION, watchlist=[self._notification_watch]
         )
         self._context_processor = VisionImageContextProcessor()
 
@@ -314,6 +319,7 @@ class ScreenWorker(PipelineWorker):
             models.current().vision,
             name="ScreenLLMService",
             max_tokens=SCREEN_MAX_TOKENS,
+            json_schema=IMAGE_OUTPUT_SCHEMA,
             # A request that hangs on connect is retried once.
             retry_on_timeout=True,
         )
@@ -563,7 +569,7 @@ class ScreenWorker(PipelineWorker):
         if watcher_id == NOTIFICATION_WATCH_ID:
             self._notifications_enabled = enabled
             if enabled:
-                self._image_processor.add_watch(NOTIFICATION_WATCH)
+                self._image_processor.add_watch(self._notification_watch)
             else:
                 self._image_processor.remove_watch(NOTIFICATION_WATCH_ID)
         else:

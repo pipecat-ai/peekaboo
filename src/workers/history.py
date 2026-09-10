@@ -5,27 +5,19 @@
 #
 
 import asyncio
-import os
-
-from datetime import date, datetime
+from datetime import date as date_type
+from datetime import datetime
 from typing import Optional
 
 from loguru import logger
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.bus.messages import BusJobRequestMessage
 from pipecat.frames.frames import LLMMessagesUpdateFrame
 from pipecat.pipeline.job_context import JobStatus
 from pipecat.pipeline.job_decorator import job
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
-from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContextAggregatorPair,
-)
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.workers.llm.llm_context_worker import LLMContextWorker
+from pipecat.workers.llm.tool_decorator import tool
 
-from processors.turns import LLMTurnCollector
 import models
 from store.models import Observation
 from store.sqlite_store import SQLiteStore
@@ -91,15 +83,18 @@ def _parse_time(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(value)
 
 
-class HistoryWorker(PipelineWorker):
+class HistoryWorker(LLMContextWorker):
     """Answers questions about the past from the store.
 
-    Long-lived. Each ``search`` job resets the LLM context to the new question
-    and runs until the model answers without calling a tool. Text the model
-    writes alongside a tool call is sent back as a progress update, so the
-    requester can narrate "checking this morning" while the search runs. The
-    answer carries the ids of the observations the model looked at, so an app
-    can show the frames behind it.
+    A Pipecat ``LLMContextWorker``: it owns its context and aggregators, and
+    the ``@tool`` methods below are its tools, registered from their
+    signatures and docstrings. Long-lived. Each ``search`` job resets the
+    context to the new question and runs until the model answers without
+    calling a tool. Text the model writes alongside a tool call is sent back
+    as a progress update, so the requester can narrate "checking this
+    morning" while the search runs. The answer carries the ids of the
+    observations the model looked at, so an app can show the frames behind
+    it.
     """
 
     def __init__(
@@ -107,12 +102,8 @@ class HistoryWorker(PipelineWorker):
         *,
         store: SQLiteStore,
         max_tokens: int = 16000,
-        thinking_budget_tokens: int = 10000,
-        **kwargs,
     ):
         self._store = store
-        self._max_tokens = max_tokens
-        self._thinking_budget_tokens = thinking_budget_tokens
 
         # The job being searched for, how its handler learns the answer, and
         # every observation a tool returned while searching.
@@ -120,100 +111,22 @@ class HistoryWorker(PipelineWorker):
         self._answer: Optional[asyncio.Future[str]] = None
         self._seen_ids: list[int] = []
 
-        turns = LLMTurnCollector()
-        pipeline = self._build_pipeline(turns)
-
-        super().__init__(
-            pipeline,
-            name=HISTORY_WORKER,
-            params=PipelineParams(
-                enable_metrics=True,
-                enable_usage_metrics=True,
-            ),
-            # No transport here, so no speaking frames: never idle out.
-            idle_timeout_secs=None,
-            **kwargs,
-        )
-
-        turns.add_event_handler("on_turn", self._on_turn)
-
-    def _build_pipeline(self, turns: LLMTurnCollector) -> Pipeline:
-        # A stream that stalls after its first token once sat for twelve
-        # minutes; the client's read timeout turns that into an error the
-        # search can report instead.
+        # The conversation's model: this worker is its helper. A stream that
+        # stalls after its first token once sat for twelve minutes; the
+        # client's read timeout turns that into an error the search can report.
         llm = models.make_llm(
             models.current().voice,
             name="HistoryLLMService",
             system_instruction=system_instruction(),
-            max_tokens=self._max_tokens,
-            thinking_budget=self._thinking_budget_tokens,
+            max_tokens=max_tokens,
             read_timeout_secs=STREAM_READ_TIMEOUT_SECS,
         )
-        llm.register_function("search_history", self._search_history)
-        llm.register_function("timeline", self._timeline)
-        llm.register_function("available_history", self._available_history)
+        # Active from the start: activation is what sets the tools.
+        super().__init__(HISTORY_WORKER, llm=llm, active=True)
 
-        time_property = {
-            "type": "string",
-            "description": "ISO 8601 local time, like 2026-09-01T09:40.",
-        }
-
-        tools = ToolsSchema(
-            standard_tools=[
-                FunctionSchema(
-                    name="search_history",
-                    description=(
-                        "Keyword search over what was on screen: descriptions and the "
-                        "exact text that was visible. Best matches first."
-                    ),
-                    properties={
-                        "query": {
-                            "type": "string",
-                            "description": "A few specific keywords, not a full sentence.",
-                        },
-                        "since": time_property,
-                        "until": time_property,
-                    },
-                    required=["query"],
-                ),
-                FunctionSchema(
-                    name="timeline",
-                    description="The observations in a time window, oldest first.",
-                    properties={
-                        "since": time_property,
-                        "until": time_property,
-                        "limit": {
-                            "type": "integer",
-                            "description": f"At most this many, up to {TIMELINE_LIMIT}.",
-                        },
-                    },
-                    required=["since", "until"],
-                ),
-                FunctionSchema(
-                    name="available_history",
-                    description="Which hours of a day have observations, with counts.",
-                    properties={
-                        "date": {
-                            "type": "string",
-                            "description": "The day, like 2026-09-01.",
-                        },
-                    },
-                    required=["date"],
-                ),
-            ]
-        )
-
-        context = LLMContext(tools=tools)
-        aggregators = LLMContextAggregatorPair(context)
-
-        return Pipeline(
-            [
-                aggregators.user(),
-                llm,
-                turns,
-                aggregators.assistant(),
-            ]
-        )
+        @self.assistant_aggregator.event_handler("on_assistant_turn_stopped")
+        async def _on_turn_stopped(aggregator, message):
+            await self._on_turn(aggregator, message)
 
     @job(name="search", sequential=True)
     async def _search(self, message: BusJobRequestMessage):
@@ -252,15 +165,17 @@ class HistoryWorker(PipelineWorker):
             urgent=True,
         )
 
-    async def _on_turn(self, collector: LLMTurnCollector, text: str, called_tools: bool):
+    async def _on_turn(self, aggregator, message):
+        """What the model wrote when its turn ended: narration if it is about
+        to call a tool, otherwise the answer."""
+        text = (getattr(message, "content", "") or "").strip()
         if not text or self._job_id is None:
             return
-
-        if called_tools:
+        busy = getattr(aggregator, "has_function_calls_in_progress", False)
+        if busy() if callable(busy) else busy:
             # Progress, not the answer: the model is about to call a tool.
             await self.send_job_update(self._job_id, {"say": text}, urgent=True)
             return
-
         if self._answer and not self._answer.done():
             self._answer.set_result(text)
 
@@ -272,37 +187,60 @@ class HistoryWorker(PipelineWorker):
         self._seen_ids.extend(o.id for o in observations if o.id is not None)
         return [o.for_llm() for o in observations]
 
-    async def _search_history(self, params: FunctionCallParams):
-        query = str(params.arguments.get("query", ""))
+    @tool
+    async def search_history(
+        self, params: FunctionCallParams, query: str, since: Optional[str] = None, until: Optional[str] = None
+    ):
+        """Keyword search over what was on screen: descriptions and the exact text that was visible. Best matches first.
+
+        Args:
+            query: A few specific keywords, not a full sentence.
+            since: ISO 8601 local time, like 2026-09-01T09:40.
+            until: ISO 8601 local time, like 2026-09-01T09:40.
+        """
         try:
-            since = _parse_time(params.arguments.get("since"))
-            until = _parse_time(params.arguments.get("until"))
+            since_at = _parse_time(since)
+            until_at = _parse_time(until)
         except ValueError as e:
             await params.result_callback({"error": f"bad time: {e}"})
             return
 
-        logger.debug(f"{self}: search_history({query!r}, {since}, {until})")
+        logger.debug(f"{self}: search_history({query!r}, {since_at}, {until_at})")
 
-        found = await self._store.search(query, since=since, until=until, limit=SEARCH_LIMIT)
+        found = await self._store.search(query, since=since_at, until=until_at, limit=SEARCH_LIMIT)
         await params.result_callback({"observations": self._note(found)})
 
-    async def _timeline(self, params: FunctionCallParams):
+    @tool
+    async def timeline(self, params: FunctionCallParams, since: str, until: str, limit: Optional[int] = None):
+        """The observations in a time window, oldest first.
+
+        Args:
+            since: ISO 8601 local time, like 2026-09-01T09:40.
+            until: ISO 8601 local time, like 2026-09-01T09:40.
+            limit: At most this many, up to 100.
+        """
         try:
-            since = _parse_time(params.arguments.get("since"))
-            until = _parse_time(params.arguments.get("until"))
+            since_at = _parse_time(since)
+            until_at = _parse_time(until)
         except ValueError as e:
             await params.result_callback({"error": f"bad time: {e}"})
             return
-        limit = min(int(params.arguments.get("limit") or TIMELINE_LIMIT), TIMELINE_LIMIT)
+        limit = min(int(limit or TIMELINE_LIMIT), TIMELINE_LIMIT)
 
-        logger.debug(f"{self}: timeline({since}, {until}, {limit})")
+        logger.debug(f"{self}: timeline({since_at}, {until_at}, {limit})")
 
-        found = await self._store.timeline(since=since, until=until, limit=limit)
+        found = await self._store.timeline(since=since_at, until=until_at, limit=limit)
         await params.result_callback({"observations": self._note(found)})
 
-    async def _available_history(self, params: FunctionCallParams):
+    @tool
+    async def available_history(self, params: FunctionCallParams, date: str):
+        """Which hours of a day have observations, with counts.
+
+        Args:
+            date: The day, like 2026-09-01.
+        """
         try:
-            day = date.fromisoformat(str(params.arguments.get("date", "")))
+            day = date_type.fromisoformat(str(date))
         except ValueError as e:
             await params.result_callback({"error": f"bad date: {e}"})
             return

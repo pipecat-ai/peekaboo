@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -53,7 +54,8 @@ transport_params = {
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
-    store = SQLiteStore(root=Path("db"))
+    # PEEKABOO_STORE: the eval runner gives every scenario a store of its own.
+    store = SQLiteStore(root=Path(os.environ.get("PEEKABOO_STORE") or "db"))
     await store.open()
     await store.prune_images()
 

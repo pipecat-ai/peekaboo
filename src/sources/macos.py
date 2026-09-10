@@ -64,6 +64,8 @@ class _Streamed:
 
 
 class ScreenCaptureSource(BaseFrameSource):
+    captures_banners = True
+
     """The Mac's own screen and windows, read from the OS with ScreenCaptureKit.
 
     Two kinds of target:

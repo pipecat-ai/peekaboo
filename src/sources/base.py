@@ -56,6 +56,10 @@ class BaseFrameSource(FrameProcessor):
       window closed) and has been removed.
     """
 
+    #: Whether notification banners arrive as their own target ("banner").
+    #: Where they do not, the screen itself is where a notification shows.
+    captures_banners: bool = False
+
     def __init__(self, *, targets: set[str], **kwargs):
         super().__init__(**kwargs)
         self._targets = set(targets)

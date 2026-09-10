@@ -23,6 +23,7 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -139,7 +140,26 @@ class Bot:
         except OSError:
             return []
         wanted = re.compile(r"Traceback|Exception|\| ERROR ", re.I)
-        return [line[:160] for line in lines if wanted.search(line)]
+        # The bot's websocket server logs a chained traceback when something
+        # opens a connection to its port and closes it without a request (a
+        # readiness probe). Not the bot's problem: a traceback that ends in
+        # that is dropped whole. Lines without a timestamp belong to a
+        # traceback; a timestamped line ends it.
+        noise = re.compile(r"did not receive a valid HTTP request|connection closed while reading HTTP request line")
+        out: list[str] = []
+        traceback: list[str] = []
+        for line in lines:
+            if line[:4].isdigit():
+                out.extend(t[:160] for t in traceback if wanted.search(t))
+                traceback = []
+                if wanted.search(line):
+                    out.append(line[:160])
+            elif noise.search(line):
+                traceback = []
+            else:
+                traceback.append(line)
+        out.extend(t[:160] for t in traceback if wanted.search(t))
+        return out
 
 
 def report(result, scenario) -> None:
@@ -159,6 +179,9 @@ def report(result, scenario) -> None:
 
 async def run_scenario(path: str, *, start_bot: bool, env: dict[str, str]) -> bool:
     scenario = EvalScenario.load(path)
+    # A fresh store per scenario: what one run remembers (observations, the
+    # reminders it already announced) must not change the next run's answers.
+    env = {**env, "PEEKABOO_STORE": tempfile.mkdtemp(prefix="peekaboo-eval-")}
     if not start_bot:
         await wait_for_bot()
         result = await EvalSession.from_scenario(scenario, BOT_URL).run()

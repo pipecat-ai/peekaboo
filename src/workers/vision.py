@@ -5,13 +5,10 @@
 #
 
 import asyncio
-import os
 from datetime import datetime
 from typing import Optional
 
 from loguru import logger
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import InterruptionFrame
 from pipecat.bus.messages import (
     BusJobRequestMessage,
@@ -23,16 +20,16 @@ from pipecat.bus.messages import (
 from pipecat.pipeline.job_context import JobError, JobParams, JobStatus
 from pipecat.pipeline.job_decorator import job
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.workers.llm.llm_worker import LLMWorker
+from pipecat.workers.llm.tool_decorator import tool
 
 import models
 from processors.frames import QuestionFrame
-from processors.turns import LLMTurnCollector
 from processors.vision import VisionQueryProcessor
 from store.sqlite_store import SQLiteStore
 from workers.names import HISTORY_WORKER, SCREEN_WORKER, VISION_WORKER
@@ -43,9 +40,6 @@ FRAME_TIMEOUT_SECS = 10.0
 
 # How many recent observations a question gets as context.
 CONTEXT_OBSERVATIONS = 8
-
-# A look runs rarely and has to read exact text off a picture: the strongest
-# tier (plan §5). Adaptive thinking, with the thinking text left out.
 
 # A look that has not been answered by then is failed, so a hung model call
 # becomes a spoken apology rather than silence. Looks waiting on the history
@@ -81,13 +75,15 @@ symbols that are difficult to vocalize.
 """
 
 
-class VisionWorker(PipelineWorker):
+class VisionWorker(LLMWorker):
     """Answers questions about the screen, with the picture in hand.
 
-    A ``look`` job asks the screen worker for a fresh frame, pulls the most
-    recent observations from the store, and sends all of it to the model in
-    one call. When the question is about the past, the model delegates to
-    the history worker and this worker forwards what comes back.
+    A Pipecat ``LLMWorker`` whose pipeline puts a query processor in front
+    of the context aggregators: a ``look`` job asks the screen worker for a
+    fresh frame, pulls the most recent observations from the store, and the
+    processor turns question, picture and context into one model call. When
+    the question is about the past, the model's one tool hands it to the
+    history worker and this worker forwards what comes back.
 
     Jobs:
 
@@ -104,7 +100,6 @@ class VisionWorker(PipelineWorker):
         store: SQLiteStore,
         screen_worker: str = SCREEN_WORKER,
         history_worker: str = HISTORY_WORKER,
-        **kwargs,
     ):
         self._store = store
         self._screen_worker = screen_worker
@@ -118,58 +113,27 @@ class VisionWorker(PipelineWorker):
         # The window captures each look was given, by job id.
         self._look_sources: dict[str, list[int]] = {}
 
-        turns = LLMTurnCollector()
-        pipeline = self._build_pipeline(turns)
-
-        super().__init__(
-            pipeline,
-            name=VISION_WORKER,
-            params=PipelineParams(
-                enable_metrics=True,
-                enable_usage_metrics=True,
-            ),
-            # No transport here, so no speaking frames: never idle out.
-            idle_timeout_secs=None,
-            **kwargs,
-        )
-
-        turns.add_event_handler("on_turn", self._on_turn)
-
-    def _build_pipeline(self, turns: LLMTurnCollector) -> Pipeline:
         llm = models.make_llm(
             models.current().vision,
             name="VisionLLMService",
-            adaptive_thinking=True,
             # A request that hangs on connect is retried once.
             retry_on_timeout=True,
         )
-        llm.register_function("start_history_agent", self._start_history)
-
-        history_function = FunctionSchema(
-            name="start_history_agent",
-            description="Call this function when you don't have enough historical information.",
-            properties={
-                "query": {
-                    "type": "string",
-                    "description": "The exact question the user is asking.",
-                }
-            },
-            required=["query"],
-        )
-
-        context = LLMContext(tools=ToolsSchema(standard_tools=[history_function]))
-        aggregators = LLMContextAggregatorPair(context)
-        query_processor = VisionQueryProcessor(system_instruction=QUERY_SYSTEM_INSTRUCTION)
-
-        return Pipeline(
+        self._aggregators = LLMContextAggregatorPair(LLMContext())
+        pipeline = Pipeline(
             [
-                query_processor,  # Question + picture + context -> one model call
-                aggregators.user(),
+                VisionQueryProcessor(system_instruction=QUERY_SYSTEM_INSTRUCTION),  # Question + picture + context -> one model call
+                self._aggregators.user(),
                 llm,
-                turns,
-                aggregators.assistant(),
+                self._aggregators.assistant(),
             ]
         )
+        # Active from the start: activation is what sets the tools.
+        super().__init__(VISION_WORKER, llm=llm, pipeline=pipeline, active=True)
+
+        @self._aggregators.assistant().event_handler("on_assistant_turn_stopped")
+        async def _on_turn_stopped(aggregator, message):
+            await self._on_turn(aggregator, message)
 
     #
     # Jobs
@@ -270,9 +234,13 @@ class VisionWorker(PipelineWorker):
     # Answering
     #
 
-    async def _start_history(self, params: FunctionCallParams):
-        query = params.arguments["query"]
+    @tool
+    async def start_history_agent(self, params: FunctionCallParams, query: str):
+        """Call this function when you don't have enough historical information.
 
+        Args:
+            query: The exact question the user is asking.
+        """
         logger.debug(f"{self}: asking history: {query}")
 
         history_id = await self.request_job(
@@ -287,7 +255,8 @@ class VisionWorker(PipelineWorker):
             "Do not answer the question yourself."
         )
 
-    async def _on_turn(self, collector: LLMTurnCollector, text: str, called_tools: bool):
+    async def _on_turn(self, aggregator, message):
+        text = (getattr(message, "content", "") or "").strip()
         if not text:
             return
 
@@ -299,7 +268,8 @@ class VisionWorker(PipelineWorker):
         # Text next to a tool call is narration ("let me check the history").
         # Once the question is with the history worker, anything else the
         # model writes is noise: the history worker narrates and answers.
-        if called_tools:
+        busy = getattr(aggregator, "has_function_calls_in_progress", False)
+        if busy() if callable(busy) else busy:
             await self.send_job_update(job_id, {"say": text}, urgent=True)
             return
         if job_id in self._history_to_look.values():
