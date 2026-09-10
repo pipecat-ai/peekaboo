@@ -35,9 +35,11 @@ and only the vision one ever sees a screenshot.
 | Conversation (Voice LLM) | Cloud | Anthropic by default, or OpenAI |
 | Reading the screen (Vision LLM) | Cloud | Anthropic by default, or OpenAI |
 
-All of it is chosen in Settings ▸ Models. Nothing you say leaves the Mac
-until you say "Peekaboo"; nothing on your screen leaves it except the
-frames sent to the Vision LLM to be described.
+All of it is chosen in Settings ▸ Models. What leaves the Mac: the frames
+of windows that changed, sent to the Vision LLM to be described, and your
+questions with the memories that answer them, sent to the Voice LLM.
+Nothing you say is transcribed in the cloud, and nothing is sent before
+you say "Peekaboo".
 
 ## ⚙️ How it works
 
