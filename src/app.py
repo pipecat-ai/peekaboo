@@ -188,7 +188,6 @@ class App:
             on_answer=self.shell.show_answer,
             on_recording=lambda on: self.shell.pause(not on),
             greeting_cache=self.args.store / "greetings",
-            idle_timeout_secs=None,
         )
         if voice.rtvi:
             # The page's data requests (client-message) are answered by the
@@ -294,7 +293,10 @@ class _Delegate(NSObject):
     @objc.python_method
     def workers_finished(self, future):
         # On the main thread. Either the app is quitting and waited for this,
-        # or the workers stopped on their own and the app follows.
+        # or the workers stopped on their own and the app follows. A failure
+        # in the workers is the reason the app quits: say so.
+        if not future.cancelled() and future.exception() is not None:
+            logger.opt(exception=future.exception()).error("the workers stopped with an error")
         if self._terminating:
             AppKit.NSApp.replyToApplicationShouldTerminate_(True)
         else:
