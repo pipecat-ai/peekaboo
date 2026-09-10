@@ -23,6 +23,22 @@ window says, or to tell you when something happens.
 | 🖱️ **Runs its window by voice** | Clicks, navigates, and zooms the timeline as if you had. | "Open the third one." |
 | 🔒 **Keeps speech local** | Moonshine hears, Kokoro speaks; nothing leaves your Mac until you say its name. | "Peekaboo." |
 
+## 🧩 Local and cloud
+
+Speech stays on your Mac. Only the two language models run in the cloud,
+and only the vision one ever sees a screenshot.
+
+| | Runs | Model |
+|---|---|---|
+| Wake word and speech recognition | On your Mac | Moonshine |
+| Voice | On your Mac | Kokoro |
+| Conversation (Voice LLM) | Cloud | Anthropic by default, or OpenAI |
+| Reading the screen (Vision LLM) | Cloud | Anthropic by default, or OpenAI |
+
+All of it is chosen in Settings ▸ Models. Nothing you say leaves the Mac
+until you say "Peekaboo"; nothing on your screen leaves it except the
+frames sent to the Vision LLM to be described.
+
 ## 🔧 Built on Pipecat
 
 Peekaboo is a showcase of what [Pipecat](https://github.com/pipecat-ai/pipecat)
@@ -45,7 +61,7 @@ one bus as one app.
 - macOS 14 or later.
 - Python 3.12 and [uv](https://docs.astral.sh/uv/).
 - A Pipecat checkout next to this one, at `../pipecat`.
-- An Anthropic or OpenAI API key. Speech is local and needs none.
+- An Anthropic or OpenAI API key for the two language models. Speech is local and needs none.
 
 ## 🚀 Getting started
 
