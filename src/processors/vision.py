@@ -227,6 +227,13 @@ class VisionImageProcessor(FrameProcessor):
         if self._pending and (self._flush_task is None or self._flush_task.done()):
             self._flush_task = self.create_task(self._flush())
 
+    async def cleanup(self):
+        # A flush waiting for a target's interval would outlive the pipeline.
+        if self._flush_task and not self._flush_task.done():
+            task, self._flush_task = self._flush_task, None
+            await self.cancel_task(task)
+        await super().cleanup()
+
     async def _flush(self):
         """Send the first waiting frame that is due; if none is, sleep until
         the earliest becomes due and try again."""
